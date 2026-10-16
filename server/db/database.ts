@@ -1,10 +1,10 @@
-import { mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { runMigrations } from "./migrate.ts";
+import { migrations } from "./migrations/index.ts";
 
 export type Database = DatabaseSync;
-
-const schemaSql = readFileSync(join(import.meta.dirname, "schema.sql"), "utf8");
 
 /**
  * Node 26 names this class Database and keeps DatabaseSync as an alias.
@@ -17,7 +17,7 @@ export function openDatabase(path: string): Database {
   const db = new DatabaseSync(path, { enableForeignKeyConstraints: true });
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
-  db.exec(schemaSql);
+  runMigrations(db, migrations);
   return db;
 }
 
