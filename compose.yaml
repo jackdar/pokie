@@ -1,0 +1,24 @@
+services:
+  pokie:
+    build: .
+    volumes:
+      - pokie-data:/data
+    restart: unless-stopped
+    networks:
+      - traefik
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-traefik}
+      - traefik.http.routers.pokie.rule=Host(`${POKIE_HOST:?Set POKIE_HOST to the domain name for Pokie, for example pokie.example.com}`)
+      - traefik.http.routers.pokie.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.pokie.tls=true
+      - traefik.http.routers.pokie.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      - traefik.http.services.pokie.loadbalancer.server.port=8080
+
+volumes:
+  pokie-data:
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}

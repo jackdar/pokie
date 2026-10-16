@@ -1,0 +1,163 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/archivo/standard.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Archivo Variable", system-ui, sans-serif;
+  --font-heading: var(--font-sans);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-loss: var(--loss);
+  --color-felt: var(--felt);
+  --color-felt-deep: var(--felt-deep);
+  --color-rail: var(--rail);
+  --color-rail-light: var(--rail-light);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+/* One dark theme. The app is used at a table in the evening. */
+:root {
+  color-scheme: dark;
+  --background: #18211f;
+  --foreground: #ede7d9;
+  --card: #222d2a;
+  --card-foreground: #ede7d9;
+  --popover: #222d2a;
+  --popover-foreground: #ede7d9;
+  --primary: #d8a845;
+  --primary-foreground: #2a1f08;
+  --secondary: #2a3733;
+  --secondary-foreground: #ede7d9;
+  --muted: #2a3733;
+  --muted-foreground: #a3aca3;
+  --accent: #2a3733;
+  --accent-foreground: #ede7d9;
+  --destructive: #e5735f;
+  --border: #34413d;
+  --input: #34413d;
+  --ring: #f2d27a;
+  --radius: 0.625rem;
+
+  --loss: #e5735f;
+  --felt: #1e5a47;
+  --felt-deep: #143f32;
+  --rail: #4b3324;
+  --rail-light: #6b4a33;
+}
+
+/* Table colours, set per game by the host. Each one changes the felt and tints the room to match.
+   Green is the default above. Keep the swatches in src/ui/tableColours.ts in step. */
+:root[data-theme="blue"] {
+  --background: #161c24;
+  --card: #1f2833;
+  --popover: #1f2833;
+  --secondary: #27323f;
+  --muted: #27323f;
+  --accent: #27323f;
+  --border: #33404f;
+  --input: #33404f;
+  --muted-foreground: #a2abb6;
+  --felt: #1d4f7a;
+  --felt-deep: #133858;
+}
+
+:root[data-theme="red"] {
+  --background: #221719;
+  --card: #2d2022;
+  --popover: #2d2022;
+  --secondary: #382729;
+  --muted: #382729;
+  --accent: #382729;
+  --border: #4a3336;
+  --input: #4a3336;
+  --muted-foreground: #b3a4a5;
+  --felt: #7a2430;
+  --felt-deep: #561821;
+}
+
+:root[data-theme="purple"] {
+  --background: #1d1726;
+  --card: #282031;
+  --popover: #282031;
+  --secondary: #32293d;
+  --muted: #32293d;
+  --accent: #32293d;
+  --border: #43384f;
+  --input: #43384f;
+  --muted-foreground: #aca3b6;
+  --felt: #4f2b75;
+  --felt-deep: #371c54;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    font-variant-numeric: tabular-nums;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  h1,
+  h2,
+  h3 {
+    font-stretch: 75%;
+    line-height: 1.15;
+  }
+}
+
+@layer components {
+  .poker-table {
+    position: relative;
+    aspect-ratio: 100 / 140;
+    /* Matches the shape in seatLayout.ts so that the seats sit on the rail. */
+    border-radius: 28% / 20%;
+    background: linear-gradient(160deg, var(--rail-light), var(--rail) 45%, #3a271b);
+    padding: 0.9rem;
+    box-shadow:
+      0 18px 40px rgb(0 0 0 / 0.45),
+      inset 0 1px 0 rgb(255 255 255 / 0.12);
+  }
+
+  .felt {
+    height: 100%;
+    border-radius: 24% / 17%;
+    background:
+      radial-gradient(ellipse at 50% 40%, rgb(255 255 255 / 0.07), transparent 60%),
+      radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-deep) 100%);
+    box-shadow:
+      inset 0 0 0 2px rgb(0 0 0 / 0.25),
+      inset 0 0 40px rgb(0 0 0 / 0.35);
+  }
+
+  .seat {
+    position: absolute;
+    translate: -50% -50%;
+    box-shadow: 0 4px 10px rgb(0 0 0 / 0.4);
+  }
+}
