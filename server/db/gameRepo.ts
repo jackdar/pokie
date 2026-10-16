@@ -1,4 +1,4 @@
-import type { ChipCount, ChipDenomination } from "../../src/core/chips.ts";
+import type { ChipCount, ChipDenomination, ChipStack } from "../../src/core/chips.ts";
 import type {
   BuyIn,
   FinalCount,
@@ -28,17 +28,27 @@ type GameRow = {
   status: GameStatus;
   seat_count: number;
   table_colour: TableColour;
+  min_buy_in_minor: number | null;
+  max_buy_in_minor: number | null;
   host_token_hash: string;
 };
 
 type PlayerRow = { id: string; name: string; seat: number; token_hash: string | null };
 
-type BuyInRow = { id: string; player_id: string; amount_minor: number; created_at: string };
+type BuyInRow = {
+  id: string;
+  player_id: string;
+  amount_minor: number;
+  chips_json: string | null;
+  stack_before_minor: number | null;
+  created_at: string;
+};
 
 type WithdrawalRow = {
   id: string;
   player_id: string;
   chip_units: number;
+  chips_json: string | null;
   leaves_table: number;
   created_at: string;
 };
@@ -60,12 +70,12 @@ export function findGame(db: Database, gameId: string): StoredGame | undefined {
     .all(gameId) as PlayerRow[];
   const buyInRows = db
     .prepare(
-      "SELECT id, player_id, amount_minor, created_at FROM buy_ins WHERE game_id = ? ORDER BY created_at, rowid",
+      "SELECT id, player_id, amount_minor, chips_json, stack_before_minor, created_at FROM buy_ins WHERE game_id = ? ORDER BY created_at, rowid",
     )
     .all(gameId) as BuyInRow[];
   const withdrawalRows = db
     .prepare(
-      "SELECT id, player_id, chip_units, leaves_table, created_at FROM withdrawals WHERE game_id = ? ORDER BY created_at, rowid",
+      "SELECT id, player_id, chip_units, leaves_table, chips_json, created_at FROM withdrawals WHERE game_id = ? ORDER BY created_at, rowid",
     )
     .all(gameId) as WithdrawalRow[];
   const countRows = db
@@ -82,11 +92,14 @@ export function findGame(db: Database, gameId: string): StoredGame | undefined {
     playerId: row.player_id,
     amountMinor: row.amount_minor,
     createdAt: row.created_at,
+    ...(row.chips_json ? { chips: JSON.parse(row.chips_json) as ChipStack } : {}),
+    ...(row.stack_before_minor === null ? {} : { stackBeforeMinor: row.stack_before_minor }),
   }));
   const withdrawals: Withdrawal[] = withdrawalRows.map((row) => ({
     id: row.id,
     playerId: row.player_id,
     chipUnits: row.chip_units,
+    ...(row.chips_json ? { chips: JSON.parse(row.chips_json) as ChipStack } : {}),
     leavesTable: row.leaves_table === 1,
     createdAt: row.created_at,
   }));
@@ -110,6 +123,8 @@ export function findGame(db: Database, gameId: string): StoredGame | undefined {
       status: gameRow.status,
       seatCount: gameRow.seat_count,
       tableColour: gameRow.table_colour,
+      ...(gameRow.min_buy_in_minor === null ? {} : { minBuyInMinor: gameRow.min_buy_in_minor }),
+      ...(gameRow.max_buy_in_minor === null ? {} : { maxBuyInMinor: gameRow.max_buy_in_minor }),
       players,
       buyIns,
       withdrawals,
@@ -120,8 +135,8 @@ export function findGame(db: Database, gameId: string): StoredGame | undefined {
 
 export function insertGame(db: Database, game: Game, hostTokenHash: string, now: string): void {
   db.prepare(
-    `INSERT INTO games (id, name, rate_minor, rate_chips, denominations_json, settlement_json, status, seat_count, table_colour, host_token_hash, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO games (id, name, rate_minor, rate_chips, denominations_json, settlement_json, status, seat_count, table_colour, min_buy_in_minor, max_buy_in_minor, host_token_hash, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     game.id,
     game.name,
@@ -132,6 +147,8 @@ export function insertGame(db: Database, game: Game, hostTokenHash: string, now:
     game.status,
     game.seatCount,
     game.tableColour,
+    game.minBuyInMinor ?? null,
+    game.maxBuyInMinor ?? null,
     hostTokenHash,
     now,
   );
@@ -140,7 +157,7 @@ export function insertGame(db: Database, game: Game, hostTokenHash: string, now:
 export function updateGameSettings(db: Database, game: Game, now: string): void {
   db.prepare(
     `UPDATE games
-     SET name = ?, rate_minor = ?, rate_chips = ?, denominations_json = ?, settlement_json = ?, status = ?, seat_count = ?, table_colour = ?, updated_at = ?
+     SET name = ?, rate_minor = ?, rate_chips = ?, denominations_json = ?, settlement_json = ?, status = ?, seat_count = ?, table_colour = ?, min_buy_in_minor = ?, max_buy_in_minor = ?, updated_at = ?
      WHERE id = ?`,
   ).run(
     game.name,
@@ -151,6 +168,8 @@ export function updateGameSettings(db: Database, game: Game, now: string): void 
     game.status,
     game.seatCount,
     game.tableColour,
+    game.minBuyInMinor ?? null,
+    game.maxBuyInMinor ?? null,
     now,
     game.id,
   );
@@ -173,8 +192,16 @@ export function insertPlayer(
 
 export function insertBuyIn(db: Database, gameId: string, buyIn: BuyIn): void {
   db.prepare(
-    "INSERT INTO buy_ins (id, game_id, player_id, amount_minor, created_at) VALUES (?, ?, ?, ?, ?)",
-  ).run(buyIn.id, gameId, buyIn.playerId, buyIn.amountMinor, buyIn.createdAt);
+    "INSERT INTO buy_ins (id, game_id, player_id, amount_minor, chips_json, stack_before_minor, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    buyIn.id,
+    gameId,
+    buyIn.playerId,
+    buyIn.amountMinor,
+    buyIn.chips ? JSON.stringify(buyIn.chips) : null,
+    buyIn.stackBeforeMinor ?? null,
+    buyIn.createdAt,
+  );
 }
 
 export function deleteBuyIn(db: Database, gameId: string, buyInId: string): void {
@@ -183,13 +210,14 @@ export function deleteBuyIn(db: Database, gameId: string, buyInId: string): void
 
 export function insertWithdrawal(db: Database, gameId: string, withdrawal: Withdrawal): void {
   db.prepare(
-    "INSERT INTO withdrawals (id, game_id, player_id, chip_units, leaves_table, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO withdrawals (id, game_id, player_id, chip_units, leaves_table, chips_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
   ).run(
     withdrawal.id,
     gameId,
     withdrawal.playerId,
     withdrawal.chipUnits,
     withdrawal.leavesTable ? 1 : 0,
+    withdrawal.chips ? JSON.stringify(withdrawal.chips) : null,
     withdrawal.createdAt,
   );
 }

@@ -1,23 +1,43 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { assertWithinBuyInLimits, hasBuyInLimits } from "../../src/core/buyInLimits.ts";
 import { assertEditable, type BuyIn, type Game } from "../../src/core/game.ts";
 import { assertConsistentGame } from "../../src/core/settlement.ts";
 import { assertSeated } from "../../src/core/table.ts";
 import { inTransaction, type Database } from "../db/database.ts";
 import { deleteBuyIn, insertBuyIn, touchGame } from "../db/gameRepo.ts";
-import { loadGame, nowIso, parseJsonBody, requireHost } from "../http.ts";
+import { identifyCaller, loadGame, nowIso, parseJsonBody, requireHost } from "../http.ts";
 import { addBuyInSchema } from "./schemas.ts";
 
 export function buyInRoutes(db: Database): Hono {
   const routes = new Hono();
 
+  // The host records a buy-in for anyone. A player records their own.
   routes.post("/:gameId/buy-ins", async (c) => {
     const stored = loadGame(db, c.req.param("gameId"));
-    requireHost(c, stored);
+    const caller = identifyCaller(c, stored);
+    if (caller.role === "guest") {
+      throw new HTTPException(401, {
+        message: "This action needs the host token or your player token.",
+      });
+    }
     const body = await parseJsonBody(c, addBuyInSchema);
+    if (caller.role === "player" && caller.playerId !== body.playerId) {
+      throw new HTTPException(403, { message: "You can buy in only for yourself." });
+    }
     assertEditable(stored.game, "buyIns");
     assertSeated(stored.game, body.playerId);
+
+    // A first buy-in starts from an empty stack. A rebuy at a table with limits must say what is left.
+    const isRebuy = stored.game.buyIns.some((buyIn) => buyIn.playerId === body.playerId);
+    if (isRebuy && hasBuyInLimits(stored.game) && body.stackBeforeMinor === undefined) {
+      throw new HTTPException(400, {
+        message: "Enter what the player still has in front of them before they buy back in.",
+      });
+    }
+    const stackBeforeMinor = isRebuy ? (body.stackBeforeMinor ?? 0) : 0;
+    assertWithinBuyInLimits(stored.game, body.amountMinor, stackBeforeMinor);
 
     const now = nowIso();
     const buyIn: BuyIn = {
@@ -25,6 +45,10 @@ export function buyInRoutes(db: Database): Hono {
       playerId: body.playerId,
       amountMinor: body.amountMinor,
       createdAt: now,
+      ...(body.chips ? { chips: body.chips } : {}),
+      ...(isRebuy && body.stackBeforeMinor !== undefined
+        ? { stackBeforeMinor: body.stackBeforeMinor }
+        : {}),
     };
     const game: Game = { ...stored.game, buyIns: [...stored.game.buyIns, buyIn] };
     assertConsistentGame(game);

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { assertWithinBuyInLimits } from "../../src/core/buyInLimits.ts";
 import { assertEditable, type BuyIn, type Game, type Player } from "../../src/core/game.ts";
 import { assertConsistentGame } from "../../src/core/settlement.ts";
 import { createToken, hashToken } from "../auth.ts";
@@ -22,12 +23,22 @@ export function playerRoutes(db: Database): Hono {
     const body = await parseJsonBody(c, addPlayerSchema);
     assertEditable(stored.game, "players");
 
+    if (body.buyInMinor !== undefined) {
+      assertWithinBuyInLimits(stored.game, body.buyInMinor, 0);
+    }
+
     const now = nowIso();
     const player: Player = { id: randomUUID(), name: body.name, seat: body.seat };
     const buyIn: BuyIn | undefined =
       body.buyInMinor === undefined
         ? undefined
-        : { id: randomUUID(), playerId: player.id, amountMinor: body.buyInMinor, createdAt: now };
+        : {
+            id: randomUUID(),
+            playerId: player.id,
+            amountMinor: body.buyInMinor,
+            createdAt: now,
+            ...(body.buyInChips ? { chips: body.buyInChips } : {}),
+          };
     const game: Game = {
       ...stored.game,
       players: [...stored.game.players, player],

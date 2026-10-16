@@ -34,6 +34,19 @@ describe("seatPositions", () => {
     }
   });
 
+  it("moves seats outside the edge by the outset", () => {
+    const outset = 5;
+    const [first, second] = seatPositions(2, shape, outset);
+    // Two seats sit in the middle of the long sides, so the outset shows directly in x.
+    expect(first?.x).toBeCloseTo(105);
+    expect(second?.x).toBeCloseTo(-5);
+    expect(first?.y).toBeCloseTo(50);
+  });
+
+  it("gives the same positions with no outset as before", () => {
+    expect(seatPositions(8, shape, 0)).toEqual(seatPositions(8, shape));
+  });
+
   it("keeps every seat on the edge of the table", () => {
     for (const { x, y } of seatPositions(9, shape)) {
       const px = (x / 100) * shape.width;

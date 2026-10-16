@@ -63,12 +63,16 @@ describe("canSelectSeat", () => {
     expect(canSelectSeat(guest, { ...baseGame, status: "counting" }, undefined)).toBe(false);
   });
 
-  it("lets a player tap only their own seat, and only to count", () => {
+  it("lets a player tap only their own seat, to buy in or to count", () => {
     const counting: Game = { ...baseGame, status: "counting" };
+    expect(canSelectSeat(annOnThisDevice, baseGame, ann)).toBe(true);
     expect(canSelectSeat(annOnThisDevice, counting, ann)).toBe(true);
     expect(canSelectSeat(annOnThisDevice, counting, bob)).toBe(false);
-    expect(canSelectSeat(annOnThisDevice, baseGame, ann)).toBe(false);
     expect(canSelectSeat(annOnThisDevice, baseGame, undefined)).toBe(false);
+  });
+
+  it("does not let a player tap their seat after the game is settled", () => {
+    expect(canSelectSeat(annOnThisDevice, { ...baseGame, status: "settled" }, ann)).toBe(false);
   });
 
   it("lets the host tap any player, and free seats while the game is open", () => {
@@ -81,6 +85,12 @@ describe("canSelectSeat", () => {
 describe("viewerHint", () => {
   it("invites a guest to join while the game is open", () => {
     expect(viewerHint(guest, baseGame)).toBe("Tap a free seat on the table to join the game.");
+  });
+
+  it("tells a player how to buy in again while the game is open", () => {
+    expect(viewerHint(annOnThisDevice, baseGame)).toBe(
+      "You are in seat 3. Tap your seat to buy in again.",
+    );
   });
 
   it("asks a player to count during counting", () => {

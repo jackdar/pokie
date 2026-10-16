@@ -1,4 +1,4 @@
-import type { ChipCount, ChipDenomination } from "../core/chips.ts";
+import type { ChipCount, ChipDenomination, ChipStack } from "../core/chips.ts";
 import type {
   BuyIn,
   Game,
@@ -61,6 +61,8 @@ export type NewGame = {
   denominations: Omit<ChipDenomination, "id">[];
   seatCount: number;
   settlement: SettlementMode;
+  minBuyInMinor?: MinorUnits;
+  maxBuyInMinor?: MinorUnits;
 };
 
 export type GameUpdate = Partial<{
@@ -69,6 +71,9 @@ export type GameUpdate = Partial<{
   tableColour: TableColour;
   settlement: SettlementMode;
   status: GameStatus;
+  /** null removes the limit. */
+  minBuyInMinor: MinorUnits | null;
+  maxBuyInMinor: MinorUnits | null;
 }>;
 
 export const api = {
@@ -88,7 +93,7 @@ export const api = {
   addPlayer: (
     gameId: string,
     hostToken: string | undefined,
-    player: { name: string; seat: number; buyInMinor?: MinorUnits },
+    player: { name: string; seat: number; buyInMinor?: MinorUnits; buyInChips?: ChipStack },
   ) =>
     request<{ game: Game; player: Player; playerToken?: string }>(`/games/${gameId}/players`, {
       method: "POST",
@@ -96,14 +101,20 @@ export const api = {
       body: player,
     }),
 
+  /** The token is the host token, or the player token of the player who buys in. */
   addBuyIn: (
     gameId: string,
-    hostToken: string,
-    buyIn: { playerId: string; amountMinor: MinorUnits },
+    token: string,
+    buyIn: {
+      playerId: string;
+      amountMinor: MinorUnits;
+      chips?: ChipStack;
+      stackBeforeMinor?: MinorUnits;
+    },
   ) =>
     request<{ game: Game; buyIn: BuyIn }>(`/games/${gameId}/buy-ins`, {
       method: "POST",
-      token: hostToken,
+      token,
       body: buyIn,
     }),
 
@@ -116,7 +127,7 @@ export const api = {
   addWithdrawal: (
     gameId: string,
     hostToken: string,
-    withdrawal: { playerId: string; chipUnits: number; leavesTable: boolean },
+    withdrawal: { playerId: string; chipUnits: number; leavesTable: boolean; chips?: ChipStack },
   ) =>
     request<{ game: Game; withdrawal: Withdrawal }>(`/games/${gameId}/withdrawals`, {
       method: "POST",

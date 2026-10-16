@@ -1,9 +1,12 @@
 import { MinusIcon, PlusIcon } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { useState, type FormEvent } from "react";
 import { api, type GameUpdate } from "@/api/client.ts";
 import { useGameMutation } from "@/api/gameQueries.ts";
 import { BottomSheet } from "@/components/BottomSheet.tsx";
+import { ChipSwatch } from "@/components/ChipSwatch.tsx";
 import { FormError } from "@/components/FormError.tsx";
+import { MoneyInput } from "@/components/MoneyInput.tsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +14,10 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import type { Game, SettlementMode, TableColour } from "@/core/game.ts";
 import { cn } from "@/lib/utils";
 import { tableColourOptions } from "@/ui/tableColours.ts";
+import { approximateMinorUnits } from "@/core/chips.ts";
+import { formatMoney, formatMoneyInput, parseMoneyInput } from "@/core/money.ts";
 import { MAX_SEATS, MIN_SEATS, seatedPlayers } from "@/core/table.ts";
+import { chipSwatchColour } from "@/ui/chipColours.ts";
 
 type GameSettingsSheetProps = {
   game: Game;
@@ -33,6 +39,12 @@ function initialChoice(settlement: SettlementMode): HolderChoice {
 export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsSheetProps) {
   const [seatCount, setSeatCount] = useState(game.seatCount);
   const [tableColour, setTableColour] = useState<TableColour>(game.tableColour);
+  const [minBuyIn, setMinBuyIn] = useState(() =>
+    game.minBuyInMinor === undefined ? "" : formatMoneyInput(game.minBuyInMinor),
+  );
+  const [maxBuyIn, setMaxBuyIn] = useState(() =>
+    game.maxBuyInMinor === undefined ? "" : formatMoneyInput(game.maxBuyInMinor),
+  );
   const [choice, setChoice] = useState(() => initialChoice(game.settlement));
   const [externalName, setExternalName] = useState(
     game.settlement.mode === "escrow" && game.settlement.holder.kind === "external"
@@ -48,6 +60,7 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
   const canChangeSeats = game.status === "open";
   const canChangeSettlement = game.status === "open" || game.status === "counting";
   const canChangeColour = game.status !== "closed";
+  const canChangeLimits = game.status === "open";
   const players = seatedPlayers(game);
 
   function buildSettlement(): SettlementMode | string {
@@ -66,6 +79,22 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
     const update: GameUpdate = {};
     if (tableColour !== game.tableColour) update.tableColour = tableColour;
     if (canChangeSeats && seatCount !== game.seatCount) update.seatCount = seatCount;
+    if (canChangeLimits) {
+      const min = minBuyIn.trim() === "" ? null : parseMoneyInput(minBuyIn);
+      const max = maxBuyIn.trim() === "" ? null : parseMoneyInput(maxBuyIn);
+      if (min === undefined || min === 0) {
+        return setFormError(
+          "Enter the table minimum as an amount, for example 20.00, or leave it empty.",
+        );
+      }
+      if (max === undefined || max === 0) {
+        return setFormError(
+          "Enter the table maximum as an amount, for example 50.00, or leave it empty.",
+        );
+      }
+      if ((game.minBuyInMinor ?? null) !== min) update.minBuyInMinor = min;
+      if ((game.maxBuyInMinor ?? null) !== max) update.maxBuyInMinor = max;
+    }
     if (canChangeSettlement) {
       const settlement = buildSettlement();
       if (typeof settlement === "string") return setFormError(settlement);
@@ -75,11 +104,15 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
     save.mutate(update, { onSuccess: onClose });
   }
 
-  async function copyLink(kind: "host" | "join") {
+  function gameLink(kind: "host" | "join"): string {
     const url = new URL(`/games/${game.id}`, window.location.origin);
     if (kind === "host") url.searchParams.set("host", hostToken);
+    return url.toString();
+  }
+
+  async function copyLink(kind: "host" | "join") {
     try {
-      await navigator.clipboard.writeText(url.toString());
+      await navigator.clipboard.writeText(gameLink(kind));
       setCopied(kind);
     } catch {
       setFormError("Cannot copy to the clipboard. Copy the address from the address bar instead.");
@@ -111,6 +144,35 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
             ))}
           </div>
           <p className="text-sm text-muted-foreground">Everyone in the game sees this colour.</p>
+        </fieldset>
+
+        <fieldset className="grid gap-2" disabled={!canChangeLimits}>
+          <legend className="mb-1.5 text-sm font-medium">Table limits</legend>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="settings-min-buy-in">Minimum</Label>
+              <MoneyInput
+                id="settings-min-buy-in"
+                value={minBuyIn}
+                placeholder="No minimum"
+                onChange={setMinBuyIn}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="settings-max-buy-in">Maximum</Label>
+              <MoneyInput
+                id="settings-max-buy-in"
+                value={maxBuyIn}
+                placeholder="No maximum"
+                onChange={setMaxBuyIn}
+              />
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {canChangeLimits
+              ? "After any buy-in, a player's stack must be between these amounts."
+              : "You can change the limits only while the game is in play."}
+          </p>
         </fieldset>
 
         <fieldset className="grid gap-2" disabled={!canChangeSeats}>
@@ -187,6 +249,32 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
         </Button>
       </form>
 
+      <section className="grid gap-2 border-t pt-4" aria-labelledby="chips-title">
+        <h3 id="chips-title" className="text-sm font-medium">
+          Chips
+        </h3>
+        <ul className="grid gap-1.5">
+          {game.denominations
+            .toSorted((a, b) => a.chipValue - b.chipValue)
+            .map((denomination) => (
+              <li key={denomination.id} className="flex items-center gap-2.5">
+                <ChipSwatch
+                  hex={chipSwatchColour(denomination.colour)}
+                  className="size-6 border-[3px]"
+                />
+                <span className="flex-1">{denomination.colour}</span>
+                {denomination.quantity !== undefined && (
+                  <span className="text-muted-foreground">{denomination.quantity} in the case</span>
+                )}
+                <span className="min-w-[5ch] text-right font-semibold">
+                  {formatMoney(approximateMinorUnits(denomination.chipValue, game.rate))}
+                </span>
+              </li>
+            ))}
+        </ul>
+        <p className="text-sm text-muted-foreground">Chip values are set when the game starts.</p>
+      </section>
+
       <section className="grid gap-2 border-t pt-4" aria-labelledby="links-title">
         <h3 id="links-title" className="text-sm font-medium">
           Links
@@ -199,6 +287,21 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
             {copied === "host" ? "Copied" : "Copy host link"}
           </Button>
         </div>
+        <figure className="grid justify-items-start gap-2">
+          <div className="rounded-xl bg-white p-3">
+            <QRCodeSVG
+              value={gameLink("join")}
+              size={176}
+              level="M"
+              bgColor="#ffffff"
+              fgColor="#000000"
+              title="QR code for the join link"
+            />
+          </div>
+          <figcaption className="text-sm text-muted-foreground">
+            Players can scan this to open the join link.
+          </figcaption>
+        </figure>
         <p className="text-sm text-muted-foreground">
           Send the join link to the table. Players open it, tap a free seat, and enter their buy-in.
           The host link lets the person who opens it make every change, so share it only with a

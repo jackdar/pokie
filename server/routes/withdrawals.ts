@@ -27,6 +27,7 @@ export function withdrawalRoutes(db: Database): Hono {
       chipUnits: body.chipUnits,
       leavesTable: body.leavesTable,
       createdAt: now,
+      ...(body.chips ? { chips: body.chips } : {}),
     };
     const game: Game = { ...stored.game, withdrawals: [...stored.game.withdrawals, withdrawal] };
     assertConsistentGame(game);

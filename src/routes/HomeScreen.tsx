@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 import { api, type NewGame } from "@/api/client.ts";
 import { rememberHostedGame } from "@/api/deviceGames.ts";
 import { ChipColourPicker } from "@/components/ChipColourPicker.tsx";
+import { ChipStackList } from "@/components/ChipStackList.tsx";
 import { ChipSwatch } from "@/components/ChipSwatch.tsx";
 import { FormError } from "@/components/FormError.tsx";
 import { HostedGames } from "@/components/HostedGames.tsx";
@@ -13,24 +14,53 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { parseMoneyInput } from "@/core/money.ts";
+import { fairShare, ownedChips, stackValue } from "@/core/chipCase.ts";
+import type { ChipDenomination } from "@/core/chips.ts";
+import { formatMoney, parseMoneyInput } from "@/core/money.ts";
 import { DEFAULT_SEATS, MAX_SEATS, MIN_SEATS } from "@/core/table.ts";
 import { unusedChipColours } from "@/ui/chipColours.ts";
+import { parseQuantity } from "@/ui/chipQuantities.ts";
 
-type ChipRow = { key: number; colour: string; value: string };
+/** One chip in the form. "quantity" is how many the host has in the chip case. */
+type ChipRow = { key: number; colour: string; value: string; quantity: string };
 
 const defaultChips: ChipRow[] = [
-  { key: 1, colour: "White", value: "0.25" },
-  { key: 2, colour: "Red", value: "1.00" },
-  { key: 3, colour: "Green", value: "5.00" },
-  { key: 4, colour: "Black", value: "25.00" },
+  { key: 1, colour: "White", value: "0.25", quantity: "" },
+  { key: 2, colour: "Red", value: "1.00", quantity: "" },
+  { key: 3, colour: "Green", value: "5.00", quantity: "" },
+  { key: 4, colour: "Black", value: "25.00", quantity: "" },
 ];
+
+/** The chips as denominations, or an error message. Quantities are all filled in or all empty. */
+function denominationsFromRows(rows: ChipRow[]): Omit<ChipDenomination, "id">[] | string {
+  const withQuantity = rows.filter((row) => row.quantity.trim() !== "");
+  if (withQuantity.length > 0 && withQuantity.length < rows.length) {
+    return "Enter how many you have of every chip, or leave them all empty.";
+  }
+  const denominations: Omit<ChipDenomination, "id">[] = [];
+  for (const row of rows) {
+    const chipValue = parseMoneyInput(row.value);
+    if (!chipValue) return `Enter a value for the ${row.colour} chip, for example 1.00.`;
+    if (withQuantity.length === 0) {
+      denominations.push({ colour: row.colour, chipValue });
+      continue;
+    }
+    const quantity = parseQuantity(row.quantity);
+    if (quantity === undefined) {
+      return `Enter how many ${row.colour} chips you have as a whole number.`;
+    }
+    denominations.push({ colour: row.colour, chipValue, quantity });
+  }
+  return denominations;
+}
 
 export function HomeScreen() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [chips, setChips] = useState(defaultChips);
   const [seatCount, setSeatCount] = useState(DEFAULT_SEATS);
+  const [minBuyIn, setMinBuyIn] = useState("");
+  const [maxBuyIn, setMaxBuyIn] = useState("");
   const [settleMode, setSettleMode] = useState<"direct" | "escrow">("direct");
   const [holderName, setHolderName] = useState("");
   const [formError, setFormError] = useState<string>();
@@ -52,11 +82,19 @@ export function HomeScreen() {
     const trimmedName = name.trim();
     if (!trimmedName) return "Enter a name for the game.";
 
-    const denominations = [];
-    for (const chip of chips) {
-      const chipValue = parseMoneyInput(chip.value);
-      if (!chipValue) return `Enter a value for the ${chip.colour} chip, for example 1.00.`;
-      denominations.push({ colour: chip.colour, chipValue });
+    const denominations = denominationsFromRows(chips);
+    if (typeof denominations === "string") return denominations;
+
+    const minBuyInMinor = minBuyIn.trim() === "" ? undefined : parseMoneyInput(minBuyIn);
+    const maxBuyInMinor = maxBuyIn.trim() === "" ? undefined : parseMoneyInput(maxBuyIn);
+    if (minBuyIn.trim() !== "" && !minBuyInMinor) {
+      return "Enter the table minimum as an amount, for example 20.00, or leave it empty.";
+    }
+    if (maxBuyIn.trim() !== "" && !maxBuyInMinor) {
+      return "Enter the table maximum as an amount, for example 50.00, or leave it empty.";
+    }
+    if (minBuyInMinor && maxBuyInMinor && minBuyInMinor > maxBuyInMinor) {
+      return "The table minimum cannot be more than the table maximum.";
     }
 
     if (settleMode === "escrow" && !holderName.trim()) {
@@ -67,6 +105,8 @@ export function HomeScreen() {
       name: trimmedName,
       denominations,
       seatCount,
+      ...(minBuyInMinor ? { minBuyInMinor } : {}),
+      ...(maxBuyInMinor ? { maxBuyInMinor } : {}),
       settlement:
         settleMode === "direct"
           ? { mode: "direct" }
@@ -87,6 +127,12 @@ export function HomeScreen() {
   }
 
   const unusedColours = unusedChipColours(chips.map((chip) => chip.colour));
+  const draftDenominations = denominationsFromRows(chips);
+  const draftCase =
+    typeof draftDenominations === "object" &&
+    draftDenominations.every((d) => d.quantity !== undefined)
+      ? draftDenominations.map((d, index) => ({ ...d, id: String(index) }))
+      : undefined;
 
   return (
     <>
@@ -117,9 +163,25 @@ export function HomeScreen() {
         </div>
 
         <fieldset className="grid gap-2">
-          <legend className="mb-1.5 text-sm font-medium">Chip values</legend>
+          <legend className="mb-1.5 text-sm font-medium">Chip case</legend>
+          <p className="text-sm text-muted-foreground">
+            Give each chip a value. Enter how many of each you have, and the app splits the case
+            between the seats and tells you which chips to hand out for each buy-in.
+          </p>
+          <div
+            aria-hidden="true"
+            className="grid grid-cols-[2.5rem_1fr_6rem_4.5rem_2.25rem] gap-2 text-xs text-muted-foreground"
+          >
+            <span />
+            <span />
+            <span>Value</span>
+            <span>How many</span>
+          </div>
           {chips.map((chip) => (
-            <div key={chip.key} className="grid grid-cols-[auto_1fr_7rem_auto] items-center gap-3">
+            <div
+              key={chip.key}
+              className="grid grid-cols-[2.5rem_1fr_6rem_4.5rem_2.25rem] items-center gap-2"
+            >
               <ChipColourPicker
                 colour={chip.colour}
                 takenColours={chips.filter((row) => row.key !== chip.key).map((row) => row.colour)}
@@ -132,6 +194,14 @@ export function HomeScreen() {
                 value={chip.value}
                 placeholder="0.00"
                 onChange={(value) => updateChip(chip.key, { value })}
+              />
+              <Input
+                aria-label={`How many ${chip.colour} chips you have`}
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="–"
+                value={chip.quantity}
+                onChange={(event) => updateChip(chip.key, { quantity: event.target.value })}
               />
               <Button
                 type="button"
@@ -163,6 +233,7 @@ export function HomeScreen() {
                           key: Math.max(0, ...rows.map((row) => row.key)) + 1,
                           colour: colour.name,
                           value: "",
+                          quantity: "",
                         },
                       ])
                     }
@@ -171,6 +242,24 @@ export function HomeScreen() {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+          {draftCase && (
+            <div className="mt-2 grid gap-2 rounded-lg border p-3">
+              <p className="text-sm">
+                Split over {seatCount} seats, each seat can take up to{" "}
+                <span className="font-semibold">
+                  {formatMoney(
+                    stackValue(fairShare(ownedChips(draftCase), draftCase, seatCount), draftCase),
+                  )}
+                </span>
+                :
+              </p>
+              <ChipStackList
+                stack={fairShare(ownedChips(draftCase), draftCase, seatCount)}
+                denominations={draftCase}
+                rate={{ minorUnits: 1, chipUnits: 1 }}
+              />
             </div>
           )}
         </fieldset>
@@ -201,6 +290,34 @@ export function HomeScreen() {
             >
               <PlusIcon />
             </Button>
+          </div>
+        </fieldset>
+
+        <fieldset className="grid gap-2">
+          <legend className="mb-1.5 text-sm font-medium">Table limits</legend>
+          <p className="text-sm text-muted-foreground">
+            After any buy-in, a player's stack must be between these amounts. Leave them empty for
+            no limit.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="min-buy-in">Minimum</Label>
+              <MoneyInput
+                id="min-buy-in"
+                value={minBuyIn}
+                placeholder="No minimum"
+                onChange={setMinBuyIn}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="max-buy-in">Maximum</Label>
+              <MoneyInput
+                id="max-buy-in"
+                value={maxBuyIn}
+                placeholder="No maximum"
+                onChange={setMaxBuyIn}
+              />
+            </div>
           </div>
         </fieldset>
 

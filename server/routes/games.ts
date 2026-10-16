@@ -9,13 +9,19 @@ import { insertGame, updateGameSettings } from "../db/gameRepo.ts";
 import { loadGame, nowIso, parseJsonBody, requireHost } from "../http.ts";
 import { createGameSchema, updateGameSchema } from "./schemas.ts";
 
-type DenominationInput = { id?: string | undefined; colour: string; chipValue: number };
+type DenominationInput = {
+  id?: string | undefined;
+  colour: string;
+  chipValue: number;
+  quantity?: number | undefined;
+};
 
 function withIds(denominations: DenominationInput[]): ChipDenomination[] {
   return denominations.map((d) => ({
     id: d.id ?? randomUUID(),
     colour: d.colour,
     chipValue: d.chipValue,
+    ...(d.quantity === undefined ? {} : { quantity: d.quantity }),
   }));
 }
 
@@ -32,6 +38,8 @@ export function gameRoutes(db: Database): Hono {
       status: "open",
       seatCount: body.seatCount,
       tableColour: body.tableColour,
+      ...(body.minBuyInMinor === undefined ? {} : { minBuyInMinor: body.minBuyInMinor }),
+      ...(body.maxBuyInMinor === undefined ? {} : { maxBuyInMinor: body.maxBuyInMinor }),
       players: [],
       buyIns: [],
       withdrawals: [],
@@ -71,6 +79,13 @@ export function gameRoutes(db: Database): Hono {
     if (body.settlement !== undefined) {
       assertEditable(stored.game, "settlement");
       game = { ...game, settlement: body.settlement };
+    }
+    if (body.minBuyInMinor !== undefined || body.maxBuyInMinor !== undefined) {
+      assertEditable(stored.game, "buyInLimits");
+      // A field left out keeps its limit. A null removes the limit.
+      const min = body.minBuyInMinor === undefined ? game.minBuyInMinor : body.minBuyInMinor;
+      const max = body.maxBuyInMinor === undefined ? game.maxBuyInMinor : body.maxBuyInMinor;
+      game = { ...game, minBuyInMinor: min ?? undefined, maxBuyInMinor: max ?? undefined };
     }
     if (body.tableColour !== undefined) {
       assertEditable(stored.game, "tableColour");

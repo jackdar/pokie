@@ -3,9 +3,11 @@ import { SettingsIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ApiError, api } from "@/api/client.ts";
 import { hostTokenFor, joinedGameFor, rememberHostedGame } from "@/api/deviceGames.ts";
+import { describeBuyInLimits } from "@/ui/buyInLimits.ts";
 import { applyTableColour } from "@/ui/tableColours.ts";
 import { canSelectSeat, findViewer, viewerHint } from "@/ui/viewer.ts";
 import { useGame, useGameMutation } from "@/api/gameQueries.ts";
+import { ChipCaseSection } from "@/components/ChipCaseSection.tsx";
 import { CountSheet } from "@/components/CountSheet.tsx";
 import { CountSummary } from "@/components/CountSummary.tsx";
 import { FormError } from "@/components/FormError.tsx";
@@ -16,6 +18,7 @@ import { EmptySeatSheet, PlayerSheet } from "@/components/SeatSheets.tsx";
 import { SettlementView } from "@/components/SettlementView.tsx";
 import { StatusActions } from "@/components/StatusActions.tsx";
 import { Button } from "@/components/ui/button";
+import { hasChipCase } from "@/core/chipCase.ts";
 import type { GameStatus } from "@/core/game.ts";
 import type { LedgerEntry } from "@/core/ledger.ts";
 import { settle } from "@/core/settlement.ts";
@@ -90,6 +93,7 @@ export function GameScreen() {
   // Read on every render. Storage changes when this device joins the game.
   const viewer = findViewer(game, hostToken, joinedGameFor(game.id));
   const hint = viewerHint(viewer, game);
+  const limits = describeBuyInLimits(game);
   const selectedPlayer = selectedSeat === undefined ? undefined : playerAtSeat(game, selectedSeat);
   const settlement = settle(game);
   const closeSeat = () => setSelectedSeat(undefined);
@@ -119,7 +123,10 @@ export function GameScreen() {
             </Button>
           )}
         </div>
-        <p className="text-muted-foreground">{statusLabels[game.status]}</p>
+        <p className="text-muted-foreground">
+          {statusLabels[game.status]}
+          {limits && `. ${limits}.`}
+        </p>
         {hint && <p>{hint}</p>}
       </header>
 
@@ -160,6 +167,15 @@ export function GameScreen() {
         />
       </section>
 
+      {hasChipCase(game) && game.status === "open" && (
+        <section className="mt-10 grid gap-3" aria-labelledby="case-title">
+          <h2 id="case-title" className="text-xl font-semibold">
+            Chip case
+          </h2>
+          <ChipCaseSection game={game} />
+        </section>
+      )}
+
       <section className="mt-10 grid gap-3" aria-labelledby="ledger-title">
         <h2 id="ledger-title" className="text-xl font-semibold">
           Buy-ins and withdrawals
@@ -183,10 +199,20 @@ export function GameScreen() {
         <PlayerSheet
           game={game}
           player={selectedPlayer}
-          hostToken={viewer.hostToken}
+          access={{ role: "host", hostToken: viewer.hostToken }}
           onClose={closeSeat}
         />
       )}
+      {viewer.role === "player" &&
+        selectedPlayer?.id === viewer.player.id &&
+        game.status === "open" && (
+          <PlayerSheet
+            game={game}
+            player={selectedPlayer}
+            access={{ role: "player", playerToken: viewer.playerToken }}
+            onClose={closeSeat}
+          />
+        )}
       {viewer.role !== "player" &&
         selectedSeat !== undefined &&
         !selectedPlayer &&

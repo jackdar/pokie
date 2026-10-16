@@ -1,4 +1,4 @@
-import type { ChipCount, ChipDenomination, ChipRate } from "./chips.ts";
+import type { ChipCount, ChipDenomination, ChipRate, ChipStack } from "./chips.ts";
 import { GameRuleError } from "./errors.ts";
 import type { MinorUnits } from "./money.ts";
 
@@ -14,6 +14,10 @@ export type BuyIn = {
   playerId: string;
   amountMinor: MinorUnits;
   createdAt: string;
+  /** The chips taken from the chip case for this buy-in. */
+  chips?: ChipStack;
+  /** What the player still had in front of them when they bought back in. */
+  stackBeforeMinor?: MinorUnits;
 };
 
 /** Chips that a player hands in during the game. They count toward that player's cash-out. */
@@ -23,6 +27,8 @@ export type Withdrawal = {
   chipUnits: number;
   leavesTable: boolean;
   createdAt: string;
+  /** The chips put back in the chip case for this withdrawal. */
+  chips?: ChipStack;
 };
 
 export type FinalCount = {
@@ -52,6 +58,10 @@ export type Game = {
   status: GameStatus;
   seatCount: number;
   tableColour: TableColour;
+  /** The smallest stack a player may hold after a buy-in. */
+  minBuyInMinor?: MinorUnits;
+  /** The largest stack a player may hold after a buy-in. */
+  maxBuyInMinor?: MinorUnits;
   /** Ordered by seat, then by join order. Settlement uses this order to break ties. */
   players: Player[];
   buyIns: BuyIn[];
@@ -70,6 +80,7 @@ const allowedTransitions: Record<GameStatus, GameStatus[]> = {
 export type GameEdit =
   | "name"
   | "tableColour"
+  | "buyInLimits"
   | "players"
   | "seatCount"
   | "buyIns"
@@ -81,6 +92,7 @@ export type GameEdit =
 const editableIn: Record<GameEdit, { statuses: GameStatus[]; label: string }> = {
   name: { statuses: ["open", "counting", "settled"], label: "the name" },
   tableColour: { statuses: ["open", "counting", "settled"], label: "the table colour" },
+  buyInLimits: { statuses: ["open"], label: "the buy-in limits" },
   players: { statuses: ["open"], label: "players" },
   seatCount: { statuses: ["open"], label: "the seat count" },
   buyIns: { statuses: ["open"], label: "buy-ins" },

@@ -41,6 +41,8 @@ function shutDown(): void {
     db.close();
     process.exit(0);
   });
+  // Live update streams stay open until the browser closes them. End them so that the server can stop.
+  if ("closeAllConnections" in server) server.closeAllConnections();
 }
 
 process.on("SIGTERM", shutDown);

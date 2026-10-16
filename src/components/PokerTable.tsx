@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 import { approximateMinorUnits } from "@/core/chips.ts";
 import type { Game, Player } from "@/core/game.ts";
@@ -8,6 +9,16 @@ import { seatPositions, type TableShape } from "@/ui/seatLayout.ts";
 
 /** Keep in step with the aspect-ratio and border-radius of .poker-table in styles.css. */
 const tableShape: TableShape = { width: 100, height: 140, cornerRadius: 28 };
+
+/** How far outside the rail the seat centres sit, in the same units as tableShape. */
+const seatOutset = 5;
+
+/** Bigger tables get smaller seats so that they do not touch. */
+function seatSizeRem(seatCount: number): number {
+  if (seatCount <= 6) return 4.5;
+  if (seatCount <= 8) return 4;
+  return 3.5;
+}
 
 type PokerTableProps = {
   game: Game;
@@ -35,11 +46,16 @@ function seatDetail(game: Game, playerId: string): { text: string; needsCount: b
 
 export function PokerTable({ game, canSelectSeat, onSeatSelect, ownPlayerId }: PokerTableProps) {
   const pool = poolSummary(game);
-  const positions = seatPositions(game.seatCount, tableShape);
+  const positions = seatPositions(game.seatCount, tableShape, seatOutset);
+  const seatSize = seatSizeRem(game.seatCount);
   const onTableMinor = approximateMinorUnits(pool.chipUnitsInPlay, game.rate);
 
   return (
-    <div className="mx-auto max-w-[26rem] p-9">
+    <div
+      className="mx-auto max-w-[30rem]"
+      // Room around the table for the seats that sit outside the rail.
+      style={{ padding: `calc(${seatSize / 2}rem + ${seatOutset}%)` }}
+    >
       <div className="poker-table">
         <div className="felt grid place-content-center gap-1 p-4 text-center">
           <p className="text-[clamp(1.75rem,9vw,2.6rem)] leading-none font-bold tracking-wide text-foreground/85 [font-stretch:75%]">
@@ -59,17 +75,21 @@ export function PokerTable({ game, canSelectSeat, onSeatSelect, ownPlayerId }: P
           const seatNumber = seat + 1;
           const isOwnSeat = player !== undefined && player.id === ownPlayerId;
           const className = cn(
-            "seat grid size-[4.5rem] place-content-center rounded-full border-2 p-1.5 text-center leading-tight",
+            "seat grid size-(--seat-size) place-content-center rounded-full border-2 p-1.5 text-center leading-tight",
             player
               ? "border-rail bg-secondary"
               : "border-dashed border-rail-light bg-background/85",
             detail?.needsCount && "border-primary",
             isOwnSeat && "ring-3 ring-primary ring-offset-2 ring-offset-rail",
           );
-          const style = { left: `${position.x}%`, top: `${position.y}%` };
+          const style = {
+            left: `${position.x}%`,
+            top: `${position.y}%`,
+            "--seat-size": `${seatSize}rem`,
+          } as CSSProperties;
           const content = player ? (
             <>
-              <span className="max-w-[3.6rem] truncate text-[0.9375rem] font-semibold [font-stretch:75%]">
+              <span className="max-w-[calc(var(--seat-size)_-_0.9rem)] truncate text-[0.9375rem] font-semibold [font-stretch:75%]">
                 {isOwnSeat ? "You" : player.name}
               </span>
               <span

@@ -13,7 +13,10 @@ const denominationSchema = z.object({
   id: z.string().min(1).max(64).optional(),
   colour: z.string().trim().min(1).max(40),
   chipValue: z.int().positive(),
+  quantity: z.int().nonnegative().optional(),
 });
+
+const chipStackSchema = z.record(z.string(), z.int().nonnegative());
 
 const settlementSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("direct") }),
@@ -34,6 +37,8 @@ export const createGameSchema = z.object({
   settlement: settlementSchema.default({ mode: "direct" }),
   seatCount: z.int().default(DEFAULT_SEATS),
   tableColour: z.enum(TABLE_COLOURS).default("green"),
+  minBuyInMinor: z.int().positive().optional(),
+  maxBuyInMinor: z.int().positive().optional(),
 });
 
 export const updateGameSchema = z.object({
@@ -43,6 +48,9 @@ export const updateGameSchema = z.object({
   settlement: settlementSchema.optional(),
   seatCount: z.int().optional(),
   tableColour: z.enum(TABLE_COLOURS).optional(),
+  /** null removes the limit. */
+  minBuyInMinor: z.int().positive().nullable().optional(),
+  maxBuyInMinor: z.int().positive().nullable().optional(),
   status: z.enum(["open", "counting", "settled", "closed"]).optional(),
 });
 
@@ -50,17 +58,23 @@ export const addPlayerSchema = z.object({
   name: nameSchema,
   seat: z.int().nonnegative(),
   buyInMinor: z.int().positive().optional(),
+  /** The chips taken from the chip case for the first buy-in. */
+  buyInChips: chipStackSchema.optional(),
 });
 
 export const addBuyInSchema = z.object({
   playerId: z.string().min(1),
   amountMinor: z.int().positive(),
+  chips: chipStackSchema.optional(),
+  /** What the player still has in front of them. Needed for a rebuy when the table has limits. */
+  stackBeforeMinor: z.int().nonnegative().optional(),
 });
 
 export const addWithdrawalSchema = z.object({
   playerId: z.string().min(1),
   chipUnits: z.int().nonnegative(),
   leavesTable: z.boolean().default(false),
+  chips: chipStackSchema.optional(),
 });
 
 export const saveFinalCountSchema = z.object({

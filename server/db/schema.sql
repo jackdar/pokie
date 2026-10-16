@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS games (
   status TEXT NOT NULL,
   seat_count INTEGER NOT NULL,
   table_colour TEXT NOT NULL,
+  min_buy_in_minor INTEGER,
+  max_buy_in_minor INTEGER,
   host_token_hash TEXT NOT NULL,
   updated_at TEXT NOT NULL
 ) STRICT;
@@ -29,6 +31,8 @@ CREATE TABLE IF NOT EXISTS buy_ins (
   game_id TEXT NOT NULL REFERENCES games (id) ON DELETE CASCADE,
   player_id TEXT NOT NULL REFERENCES players (id) ON DELETE CASCADE,
   amount_minor INTEGER NOT NULL,
+  chips_json TEXT,
+  stack_before_minor INTEGER,
   created_at TEXT NOT NULL
 ) STRICT;
 
@@ -40,6 +44,7 @@ CREATE TABLE IF NOT EXISTS withdrawals (
   player_id TEXT NOT NULL REFERENCES players (id) ON DELETE CASCADE,
   chip_units INTEGER NOT NULL,
   leaves_table INTEGER NOT NULL,
+  chips_json TEXT,
   created_at TEXT NOT NULL
 ) STRICT;
 

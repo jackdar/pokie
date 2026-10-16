@@ -54,7 +54,7 @@ describe("POST /api/games/:gameId/buy-ins", () => {
     ]);
   });
 
-  it("needs the host token", async () => {
+  it("needs the host token or a player token", async () => {
     const response = await app.request(`/api/games/${gameId}/buy-ins`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -62,6 +62,75 @@ describe("POST /api/games/:gameId/buy-ins", () => {
     });
 
     expect(response.status).toBe(401);
+  });
+
+  it("lets a player who joined buy in again for themselves", async () => {
+    const joined = await app.request(`/api/games/${gameId}/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Bob", seat: 1, buyInMinor: 1000 }),
+    });
+    const bob = await joined.json();
+    const bobHeaders = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${bob.playerToken}`,
+    };
+
+    const own = await app.request(`/api/games/${gameId}/buy-ins`, {
+      method: "POST",
+      headers: bobHeaders,
+      body: JSON.stringify({ playerId: bob.player.id, amountMinor: 500 }),
+    });
+    const forAnn = await app.request(`/api/games/${gameId}/buy-ins`, {
+      method: "POST",
+      headers: bobHeaders,
+      body: JSON.stringify({ playerId, amountMinor: 500 }),
+    });
+
+    expect(own.status).toBe(201);
+    expect(forAnn.status).toBe(403);
+    expect((await forAnn.json()).error).toBe("You can buy in only for yourself.");
+  });
+
+  it("stops a player buying in once counting starts", async () => {
+    const joined = await app.request(`/api/games/${gameId}/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Bob", seat: 1, buyInMinor: 1000 }),
+    });
+    const bob = await joined.json();
+    await app.request(`/api/games/${gameId}`, {
+      method: "PATCH",
+      headers: hostHeaders,
+      body: JSON.stringify({ status: "counting" }),
+    });
+
+    const response = await app.request(`/api/games/${gameId}/buy-ins`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${bob.playerToken}`,
+      },
+      body: JSON.stringify({ playerId: bob.player.id, amountMinor: 500 }),
+    });
+
+    expect(response.status).toBe(422);
+  });
+
+  it("does not let a player undo a buy-in", async () => {
+    const joined = await app.request(`/api/games/${gameId}/players`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Bob", seat: 1, buyInMinor: 1000 }),
+    });
+    const bob = await joined.json();
+
+    const response = await app.request(`/api/games/${gameId}/buy-ins/${bob.game.buyIns[0].id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${bob.playerToken}` },
+    });
+
+    expect(response.status).toBe(403);
   });
 
   it("rejects a buy-in for an unknown player", async () => {

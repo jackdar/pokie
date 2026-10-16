@@ -2,6 +2,8 @@ import { assertValidRate, chipValueOfCount, minorUnitsToChipUnits } from "./chip
 import { GameRuleError } from "./errors.ts";
 import type { EscrowHolder, FinalCount, Game, SettlementMode } from "./game.ts";
 import { assertPositiveMinorUnits, type MinorUnits } from "./money.ts";
+import { assertValidBuyInLimits } from "./buyInLimits.ts";
+import { assertValidChipCase } from "./chipCase.ts";
 import { assertValidTable, hasLeftTable } from "./table.ts";
 
 /** The party id of an escrow holder who is not a player. */
@@ -152,6 +154,8 @@ export function assertConsistentGame(game: Game): void {
   }
 
   assertValidTable(game);
+  assertValidChipCase(game);
+  assertValidBuyInLimits(game);
 
   const { settlement } = game;
   if (settlement.mode === "escrow" && settlement.holder.kind === "player") {

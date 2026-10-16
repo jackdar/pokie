@@ -5,7 +5,12 @@ export type ChipDenomination = {
   id: string;
   colour: string;
   chipValue: number;
+  /** How many chips of this colour are in the host's chip case. Leave it out when the game has no case. */
+  quantity?: number;
 };
+
+/** A number of chips for each denomination id, for example { red: 12, black: 2 }. */
+export type ChipStack = Record<string, number>;
 
 /** How much money buys how many chip units, for example 1000 pence = 1000 chips. */
 export type ChipRate = {

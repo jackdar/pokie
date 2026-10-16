@@ -9,10 +9,16 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { approximateMinorUnits, minorUnitsToChipUnits } from "@/core/chips.ts";
+import { CasePickup } from "@/components/CasePickup.tsx";
+import { ChipQuantityInputs } from "@/components/ChipQuantityInputs.tsx";
+import { buyInLimitError, hasBuyInLimits } from "@/core/buyInLimits.ts";
+import { hasChipCase, planBuyIn, stackValue } from "@/core/chipCase.ts";
+import { approximateMinorUnits, minorUnitsToChipUnits, type ChipStack } from "@/core/chips.ts";
 import type { Game, Player } from "@/core/game.ts";
 import { playerTotals, suggestedBuyInMinor } from "@/core/ledger.ts";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "@/core/money.ts";
+import { describeBuyInLimits, describeTopUp } from "@/ui/buyInLimits.ts";
+import { emptyQuantityInputs, stackFromInputs } from "@/ui/chipQuantities.ts";
 
 function suggestedBuyInText(game: Game): string {
   const amount = suggestedBuyInMinor(game);
@@ -34,9 +40,13 @@ export function EmptySeatSheet({ game, seat, hostToken, onClose }: EmptySeatShee
   const [formError, setFormError] = useState<string>();
   const addPlayer = useGameMutation(
     game.id,
-    (player: { name: string; seat: number; buyInMinor: number }) =>
+    (player: { name: string; seat: number; buyInMinor: number; buyInChips?: ChipStack }) =>
       api.addPlayer(game.id, hostToken, player),
   );
+  const buyInMinor = parseMoneyInput(buyIn);
+  const plan = buyInMinor ? planBuyIn(game, buyInMinor, "newPlayer") : undefined;
+  const limitError = buyInMinor ? buyInLimitError(game, buyInMinor, 0) : undefined;
+  const limits = describeBuyInLimits(game);
 
   function remember({ player, playerToken }: { player: Player; playerToken?: string }) {
     if (playerToken) rememberJoinedGame({ gameId: game.id, playerId: player.id, playerToken });
@@ -46,12 +56,16 @@ export function EmptySeatSheet({ game, seat, hostToken, onClose }: EmptySeatShee
   function submit(event: FormEvent) {
     event.preventDefault();
     const trimmedName = name.trim();
-    const buyInMinor = parseMoneyInput(buyIn);
     if (!trimmedName)
       return setFormError(isJoining ? "Enter your name." : "Enter the player's name.");
     if (!buyInMinor) return setFormError("Enter a buy-in amount, for example 20.00.");
+    // The limit error already shows under the amount.
+    if (limitError) return;
     setFormError(undefined);
-    addPlayer.mutate({ name: trimmedName, seat, buyInMinor }, { onSuccess: remember });
+    addPlayer.mutate(
+      { name: trimmedName, seat, buyInMinor, ...(plan ? { buyInChips: plan.chips } : {}) },
+      { onSuccess: remember },
+    );
   }
 
   return (
@@ -79,7 +93,15 @@ export function EmptySeatSheet({ game, seat, hostToken, onClose }: EmptySeatShee
         <div className="grid gap-1.5">
           <Label htmlFor="seat-buy-in">Buy-in</Label>
           <MoneyInput id="seat-buy-in" value={buyIn} placeholder="20.00" onChange={setBuyIn} />
+          {limits && <p className="text-sm text-muted-foreground">{limits}.</p>}
         </div>
+        {limitError ? (
+          <FormError message={limitError} />
+        ) : (
+          hasChipCase(game) && (
+            <CasePickup game={game} amountMinor={buyInMinor} plan={plan} kind="newPlayer" />
+          )
+        )}
         <FormError message={formError ?? addPlayer.error?.message} />
         <Button type="submit" size="lg" disabled={addPlayer.isPending}>
           {isJoining ? "Take this seat" : "Seat player"}
@@ -92,16 +114,22 @@ export function EmptySeatSheet({ game, seat, hostToken, onClose }: EmptySeatShee
 type PlayerSheetProps = {
   game: Game;
   player: Player;
-  hostToken: string;
+  /** The host can buy in and withdraw for anyone. A player can only buy in for themselves. */
+  access: { role: "host"; hostToken: string } | { role: "player"; playerToken: string };
   onClose: () => void;
 };
 
-export function PlayerSheet({ game, player, hostToken, onClose }: PlayerSheetProps) {
+export function PlayerSheet({ game, player, access, onClose }: PlayerSheetProps) {
+  const buyInToken = access.role === "host" ? access.hostToken : access.playerToken;
   const totals = playerTotals(game, player.id);
   const withdrawnMinor = approximateMinorUnits(totals.withdrawnChipUnits, game.rate);
 
   return (
-    <BottomSheet title={player.name} description={`Seat ${player.seat + 1}`} onClose={onClose}>
+    <BottomSheet
+      title={access.role === "player" ? "Your seat" : player.name}
+      description={`Seat ${player.seat + 1}`}
+      onClose={onClose}
+    >
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
         <dt className="text-muted-foreground">Bought in</dt>
         <dd className="text-right">{formatMoney(totals.paidInMinor)}</dd>
@@ -110,8 +138,21 @@ export function PlayerSheet({ game, player, hostToken, onClose }: PlayerSheetPro
       </dl>
       {game.status === "open" ? (
         <>
-          <BuyInForm game={game} player={player} hostToken={hostToken} onDone={onClose} />
-          <WithdrawalForm game={game} player={player} hostToken={hostToken} onDone={onClose} />
+          <BuyInForm
+            game={game}
+            player={player}
+            token={buyInToken}
+            isSelf={access.role === "player"}
+            onDone={onClose}
+          />
+          {access.role === "host" && (
+            <WithdrawalForm
+              game={game}
+              player={player}
+              hostToken={access.hostToken}
+              onDone={onClose}
+            />
+          )}
         </>
       ) : (
         <p className="text-muted-foreground">
@@ -129,27 +170,77 @@ type PlayerFormProps = {
   onDone: () => void;
 };
 
-function BuyInForm({ game, player, hostToken, onDone }: PlayerFormProps) {
+/** At a table with limits, a rebuy first asks what the player still has in front of them. */
+function BuyInForm({
+  game,
+  player,
+  token,
+  isSelf,
+  onDone,
+}: Omit<PlayerFormProps, "hostToken"> & { token: string; isSelf: boolean }) {
   const [amount, setAmount] = useState(() => suggestedBuyInText(game));
+  const [stack, setStack] = useState("");
   const [formError, setFormError] = useState<string>();
-  const addBuyIn = useGameMutation(game.id, (amountMinor: number) =>
-    api.addBuyIn(game.id, hostToken, { playerId: player.id, amountMinor }),
+  const addBuyIn = useGameMutation(
+    game.id,
+    (buyIn: { amountMinor: number; chips?: ChipStack; stackBeforeMinor?: number }) =>
+      api.addBuyIn(game.id, token, { playerId: player.id, ...buyIn }),
   );
+  const isRebuy = playerTotals(game, player.id).paidInMinor > 0;
+  const asksForStack = isRebuy && hasBuyInLimits(game);
+  const amountMinor = parseMoneyInput(amount);
+  const stackBeforeMinor = stack.trim() === "" ? undefined : parseMoneyInput(stack);
+  const limitError =
+    amountMinor && (!asksForStack || stackBeforeMinor !== undefined)
+      ? buyInLimitError(game, amountMinor, stackBeforeMinor ?? 0)
+      : undefined;
+  const plan = amountMinor ? planBuyIn(game, amountMinor, "rebuy") : undefined;
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const amountMinor = parseMoneyInput(amount);
+    if (asksForStack && stackBeforeMinor === undefined) {
+      return setFormError(
+        `Enter what ${isSelf ? "you" : "the player"} still ${isSelf ? "have" : "has"} in front of ${isSelf ? "you" : "them"}, for example 12.00.`,
+      );
+    }
     if (!amountMinor) return setFormError("Enter a buy-in amount, for example 20.00.");
+    // The limit error already shows under the amount.
+    if (limitError) return;
     setFormError(undefined);
-    addBuyIn.mutate(amountMinor, { onSuccess: onDone });
+    addBuyIn.mutate(
+      {
+        amountMinor,
+        ...(plan ? { chips: plan.chips } : {}),
+        ...(asksForStack && stackBeforeMinor !== undefined ? { stackBeforeMinor } : {}),
+      },
+      { onSuccess: onDone },
+    );
   }
 
   return (
     <form className="grid gap-3 border-t pt-4" onSubmit={submit} noValidate>
+      {asksForStack && (
+        <div className="grid gap-1.5">
+          <Label htmlFor="player-stack">
+            {isSelf ? "Still in front of you" : "Still in front of them"}
+          </Label>
+          <MoneyInput id="player-stack" value={stack} placeholder="0.00" onChange={setStack} />
+          {stackBeforeMinor !== undefined && (
+            <p className="text-sm text-muted-foreground">{describeTopUp(game, stackBeforeMinor)}</p>
+          )}
+        </div>
+      )}
       <div className="grid gap-1.5">
         <Label htmlFor="player-buy-in">Buy in again</Label>
         <MoneyInput id="player-buy-in" value={amount} placeholder="20.00" onChange={setAmount} />
       </div>
+      {limitError ? (
+        <FormError message={limitError} />
+      ) : (
+        hasChipCase(game) && (
+          <CasePickup game={game} amountMinor={amountMinor} plan={plan} kind="rebuy" />
+        )
+      )}
       <FormError message={formError ?? addBuyIn.error?.message} />
       <Button type="submit" size="lg" disabled={addBuyIn.isPending}>
         Add buy-in
@@ -158,18 +249,34 @@ function BuyInForm({ game, player, hostToken, onDone }: PlayerFormProps) {
   );
 }
 
+/** With a chip case the host counts the chips by colour, so that they go back in the case. */
 function WithdrawalForm({ game, player, hostToken, onDone }: PlayerFormProps) {
+  const usesCase = hasChipCase(game);
   const [amount, setAmount] = useState("");
+  const [quantities, setQuantities] = useState(() => emptyQuantityInputs(game.denominations));
   const [leavesTable, setLeavesTable] = useState(false);
   const [formError, setFormError] = useState<string>();
   const addWithdrawal = useGameMutation(
     game.id,
-    (withdrawal: { chipUnits: number; leavesTable: boolean }) =>
+    (withdrawal: { chipUnits: number; leavesTable: boolean; chips?: ChipStack }) =>
       api.addWithdrawal(game.id, hostToken, { playerId: player.id, ...withdrawal }),
   );
+  const returnedChips = usesCase ? stackFromInputs(quantities, game.denominations) : undefined;
+
+  function submitFromCase() {
+    if (typeof returnedChips === "string") return setFormError(returnedChips);
+    const chips = returnedChips ?? {};
+    const chipUnits = stackValue(chips, game.denominations);
+    if (chipUnits === 0 && !leavesTable) {
+      return setFormError("Count the chips handed in, or tick the box if the player is leaving.");
+    }
+    setFormError(undefined);
+    addWithdrawal.mutate({ chipUnits, leavesTable, chips }, { onSuccess: onDone });
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (usesCase) return submitFromCase();
     const amountMinor = amount.trim() === "" && leavesTable ? 0 : parseMoneyInput(amount);
     if (amountMinor === undefined) {
       return setFormError("Enter the value of the chips, for example 15.00.");
@@ -188,15 +295,35 @@ function WithdrawalForm({ game, player, hostToken, onDone }: PlayerFormProps) {
 
   return (
     <form className="grid gap-3 border-t pt-4" onSubmit={submit} noValidate>
-      <div className="grid gap-1.5">
-        <Label htmlFor="player-withdrawal">Withdraw chips</Label>
-        <MoneyInput
-          id="player-withdrawal"
-          value={amount}
-          placeholder="Value of the chips handed in"
-          onChange={setAmount}
-        />
-      </div>
+      {usesCase ? (
+        <div className="grid gap-2">
+          <p className="text-sm font-medium">Withdraw chips: count what goes back in the case</p>
+          <ChipQuantityInputs
+            denominations={game.denominations}
+            rate={game.rate}
+            inputs={quantities}
+            onChange={setQuantities}
+          />
+          {typeof returnedChips === "object" && (
+            <p className="text-right text-muted-foreground">
+              Worth{" "}
+              {formatMoney(
+                approximateMinorUnits(stackValue(returnedChips, game.denominations), game.rate),
+              )}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="grid gap-1.5">
+          <Label htmlFor="player-withdrawal">Withdraw chips</Label>
+          <MoneyInput
+            id="player-withdrawal"
+            value={amount}
+            placeholder="Value of the chips handed in"
+            onChange={setAmount}
+          />
+        </div>
+      )}
       <div className="flex items-center gap-2.5">
         <Checkbox
           id="player-leaves"

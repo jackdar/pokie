@@ -57,17 +57,26 @@ function pointOnSegment(segment: Segment, distance: number, r: number): [number,
 /**
  * Spaces the seats evenly along the edge of a rounded rectangle, clockwise.
  * Each seat sits half a gap from the top centre, so two seats face each other across the table.
+ * An outset moves the seats that far outside the edge. This gives them a longer path and more room.
  */
-export function seatPositions(seatCount: number, shape: TableShape): SeatPosition[] {
-  const segments = perimeterSegments(shape);
+export function seatPositions(seatCount: number, shape: TableShape, outset = 0): SeatPosition[] {
+  const path: TableShape = {
+    width: shape.width + 2 * outset,
+    height: shape.height + 2 * outset,
+    cornerRadius: shape.cornerRadius + outset,
+  };
+  const segments = perimeterSegments(path);
   const perimeter = segments.reduce((sum, segment) => sum + segment.length, 0);
 
   return Array.from({ length: seatCount }, (_, seat) => {
     let remaining = (perimeter * (seat + 0.5)) / seatCount;
     for (const segment of segments) {
       if (remaining <= segment.length) {
-        const [px, py] = pointOnSegment(segment, remaining, shape.cornerRadius);
-        return { x: (px / shape.width) * 100, y: (py / shape.height) * 100 };
+        const [px, py] = pointOnSegment(segment, remaining, path.cornerRadius);
+        return {
+          x: ((px - outset) / shape.width) * 100,
+          y: ((py - outset) / shape.height) * 100,
+        };
       }
       remaining -= segment.length;
     }

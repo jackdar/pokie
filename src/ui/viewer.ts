@@ -21,15 +21,19 @@ export function findViewer(
 
 export function canSelectSeat(viewer: Viewer, game: Game, player: Player | undefined): boolean {
   if (viewer.role === "host") return player !== undefined || game.status === "open";
-  if (viewer.role === "player")
-    return player?.id === viewer.player.id && game.status === "counting";
+  if (viewer.role === "player") {
+    const canAct = game.status === "open" || game.status === "counting";
+    return player?.id === viewer.player.id && canAct;
+  }
   return player === undefined && game.status === "open";
 }
 
 export function viewerHint(viewer: Viewer, game: Game): string | undefined {
   if (viewer.role === "player") {
     const seat = `You are in seat ${viewer.player.seat + 1}.`;
-    return game.status === "counting" ? `${seat} Tap your seat to count your chips.` : seat;
+    if (game.status === "open") return `${seat} Tap your seat to buy in again.`;
+    if (game.status === "counting") return `${seat} Tap your seat to count your chips.`;
+    return seat;
   }
   if (viewer.role === "guest") {
     return game.status === "open"
