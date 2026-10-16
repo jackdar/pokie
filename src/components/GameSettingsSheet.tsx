@@ -13,9 +13,11 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import type { Game, SettlementMode, TableColour } from "@/core/game.ts";
 import { cn } from "@/lib/utils";
+import { holderLabel, settleModeOptions, type SettleModeId } from "@/ui/settleModes.ts";
 import { tableColourOptions } from "@/ui/tableColours.ts";
 import { approximateMinorUnits } from "@/core/chips.ts";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "@/core/money.ts";
+import { resolveMoneyHolder } from "@/core/settlement.ts";
 import { MAX_SEATS, MIN_SEATS, seatedPlayers } from "@/core/table.ts";
 import { chipSwatchColour } from "@/ui/chipColours.ts";
 
@@ -25,15 +27,16 @@ type GameSettingsSheetProps = {
   onClose: () => void;
 };
 
-/** "direct", "external", or the id of the player who holds the money. */
+/** "external", or the id of the player who holds the money. */
 type HolderChoice = string;
 
-const directChoice = "direct";
 const externalChoice = "external";
 
-function initialChoice(settlement: SettlementMode): HolderChoice {
-  if (settlement.mode === "direct") return directChoice;
-  return settlement.holder.kind === "external" ? externalChoice : settlement.holder.playerId;
+function initialHolderChoice(game: Game): HolderChoice {
+  const { settlement } = game;
+  if (settlement.mode === "direct") return externalChoice;
+  const holder = resolveMoneyHolder(game, settlement.holder);
+  return holder.kind === "external" ? externalChoice : holder.playerId;
 }
 
 export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsSheetProps) {
@@ -45,9 +48,10 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
   const [maxBuyIn, setMaxBuyIn] = useState(() =>
     game.maxBuyInMinor === undefined ? "" : formatMoneyInput(game.maxBuyInMinor),
   );
-  const [choice, setChoice] = useState(() => initialChoice(game.settlement));
+  const [settleMode, setSettleMode] = useState<SettleModeId>(game.settlement.mode);
+  const [holderChoice, setHolderChoice] = useState(() => initialHolderChoice(game));
   const [externalName, setExternalName] = useState(
-    game.settlement.mode === "escrow" && game.settlement.holder.kind === "external"
+    game.settlement.mode !== "direct" && game.settlement.holder.kind === "external"
       ? game.settlement.holder.name
       : "",
   );
@@ -64,13 +68,13 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
   const players = seatedPlayers(game);
 
   function buildSettlement(): SettlementMode | string {
-    if (choice === directChoice) return { mode: "direct" };
-    if (choice === externalChoice) {
+    if (settleMode === "direct") return { mode: "direct" };
+    if (holderChoice === externalChoice) {
       const name = externalName.trim();
-      if (!name) return "Enter the name of the person who collects and pays out.";
-      return { mode: "escrow", holder: { kind: "external", name } };
+      if (!name) return "Enter the name of the person who holds the money.";
+      return { mode: settleMode, holder: { kind: "external", name } };
     }
-    return { mode: "escrow", holder: { kind: "player", playerId: choice } };
+    return { mode: settleMode, holder: { kind: "player", playerId: holderChoice } };
   }
 
   // Send only the settings that the game's status still allows the host to change.
@@ -211,34 +215,55 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
 
         <fieldset className="grid gap-2" disabled={!canChangeSettlement}>
           <legend className="mb-1.5 text-sm font-medium">Settle up</legend>
-          <RadioGroup value={choice} onValueChange={setChoice}>
-            <Label className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 font-normal has-data-[state=checked]:border-primary">
-              <RadioGroupItem value={directChoice} />
-              Players pay each other
-            </Label>
-            {players.map((player) => (
+          <RadioGroup
+            value={settleMode}
+            onValueChange={(value) =>
+              setSettleMode(settleModeOptions.find((o) => o.id === value)?.id ?? "direct")
+            }
+          >
+            {settleModeOptions.map((option) => (
               <Label
-                key={player.id}
-                className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 font-normal has-data-[state=checked]:border-primary"
+                key={option.id}
+                className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 font-normal has-data-[state=checked]:border-primary"
               >
-                <RadioGroupItem value={player.id} />
-                {player.name} collects and pays out
+                <RadioGroupItem value={option.id} className="mt-0.5" />
+                <span className="grid gap-0.5">
+                  <span className="font-medium">{option.title}</span>
+                  <span className="text-sm text-muted-foreground">{option.description}</span>
+                </span>
               </Label>
             ))}
-            <Label className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 font-normal has-data-[state=checked]:border-primary">
-              <RadioGroupItem value={externalChoice} />
-              Someone else collects and pays out
-            </Label>
           </RadioGroup>
-          {choice === externalChoice && (
-            <div className="grid gap-1.5">
-              <Label htmlFor="settings-holder-name">Who collects</Label>
-              <Input
-                id="settings-holder-name"
-                value={externalName}
-                maxLength={80}
-                onChange={(event) => setExternalName(event.target.value)}
-              />
+          {settleMode !== "direct" && (
+            <div className="grid gap-2 pt-2">
+              <p className="text-sm font-medium">{holderLabel(settleMode)}</p>
+              <RadioGroup value={holderChoice} onValueChange={setHolderChoice}>
+                {players.map((player) => (
+                  <Label
+                    key={player.id}
+                    className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 font-normal has-data-[state=checked]:border-primary"
+                  >
+                    <RadioGroupItem value={player.id} />
+                    {player.name}
+                  </Label>
+                ))}
+                <Label className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 font-normal has-data-[state=checked]:border-primary">
+                  <RadioGroupItem value={externalChoice} />
+                  Someone who does not play
+                </Label>
+              </RadioGroup>
+              {holderChoice === externalChoice && (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="settings-holder-name">Their name</Label>
+                  <Input
+                    id="settings-holder-name"
+                    value={externalName}
+                    maxLength={80}
+                    placeholder="Host"
+                    onChange={(event) => setExternalName(event.target.value)}
+                  />
+                </div>
+              )}
             </div>
           )}
         </fieldset>
@@ -279,6 +304,15 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
         <h3 id="links-title" className="text-sm font-medium">
           Links
         </h3>
+        <p className="text-muted-foreground">
+          Game code{" "}
+          <span className="text-2xl font-bold tracking-[0.2em] text-foreground [font-stretch:75%]">
+            {game.joinCode}
+          </span>
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Players can type this code at the top of the Pokie home page to join.
+        </p>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={() => void copyLink("join")}>
             {copied === "join" ? "Copied" : "Copy join link"}

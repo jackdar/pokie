@@ -18,7 +18,18 @@ import type { Game, Player } from "@/core/game.ts";
 import { playerTotals, suggestedBuyInMinor } from "@/core/ledger.ts";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "@/core/money.ts";
 import { describeBuyInLimits, describeTopUp } from "@/ui/buyInLimits.ts";
+import { buyInMoneyNote, withdrawalMoneyNote } from "@/ui/settleModes.ts";
 import { emptyQuantityInputs, stackFromInputs } from "@/ui/chipQuantities.ts";
+
+/** A line that tells people which money changes hands, in cash box games. */
+function MoneyNote({ text }: { text: string | undefined }) {
+  if (!text) return null;
+  return (
+    <p role="status" className="rounded-lg border border-primary/50 p-3 text-sm">
+      {text}
+    </p>
+  );
+}
 
 function suggestedBuyInText(game: Game): string {
   const amount = suggestedBuyInMinor(game);
@@ -98,9 +109,20 @@ export function EmptySeatSheet({ game, seat, hostToken, onClose }: EmptySeatShee
         {limitError ? (
           <FormError message={limitError} />
         ) : (
-          hasChipCase(game) && (
-            <CasePickup game={game} amountMinor={buyInMinor} plan={plan} kind="newPlayer" />
-          )
+          <>
+            {hasChipCase(game) && (
+              <CasePickup game={game} amountMinor={buyInMinor} plan={plan} kind="newPlayer" />
+            )}
+            {buyInMinor && (
+              <MoneyNote
+                text={buyInMoneyNote(
+                  game,
+                  buyInMinor,
+                  isJoining ? "you" : { name: name.trim() || "the player" },
+                )}
+              />
+            )}
+          </>
         )}
         <FormError message={formError ?? addPlayer.error?.message} />
         <Button type="submit" size="lg" disabled={addPlayer.isPending}>
@@ -237,9 +259,16 @@ function BuyInForm({
       {limitError ? (
         <FormError message={limitError} />
       ) : (
-        hasChipCase(game) && (
-          <CasePickup game={game} amountMinor={amountMinor} plan={plan} kind="rebuy" />
-        )
+        <>
+          {hasChipCase(game) && (
+            <CasePickup game={game} amountMinor={amountMinor} plan={plan} kind="rebuy" />
+          )}
+          {amountMinor && (
+            <MoneyNote
+              text={buyInMoneyNote(game, amountMinor, isSelf ? "you" : { name: player.name })}
+            />
+          )}
+        </>
       )}
       <FormError message={formError ?? addBuyIn.error?.message} />
       <Button type="submit" size="lg" disabled={addBuyIn.isPending}>
@@ -262,6 +291,13 @@ function WithdrawalForm({ game, player, hostToken, onDone }: PlayerFormProps) {
       api.addWithdrawal(game.id, hostToken, { playerId: player.id, ...withdrawal }),
   );
   const returnedChips = usesCase ? stackFromInputs(quantities, game.denominations) : undefined;
+
+  /** The money value of the chips handed in, as far as the form can tell yet. */
+  function handedInMinor(): number {
+    if (!usesCase) return parseMoneyInput(amount) ?? 0;
+    if (typeof returnedChips !== "object") return 0;
+    return approximateMinorUnits(stackValue(returnedChips, game.denominations), game.rate);
+  }
 
   function submitFromCase() {
     if (typeof returnedChips === "string") return setFormError(returnedChips);
@@ -305,12 +341,7 @@ function WithdrawalForm({ game, player, hostToken, onDone }: PlayerFormProps) {
             onChange={setQuantities}
           />
           {typeof returnedChips === "object" && (
-            <p className="text-right text-muted-foreground">
-              Worth{" "}
-              {formatMoney(
-                approximateMinorUnits(stackValue(returnedChips, game.denominations), game.rate),
-              )}
-            </p>
+            <p className="text-right text-muted-foreground">Worth {formatMoney(handedInMinor())}</p>
           )}
         </div>
       ) : (
@@ -324,6 +355,7 @@ function WithdrawalForm({ game, player, hostToken, onDone }: PlayerFormProps) {
           />
         </div>
       )}
+      <MoneyNote text={withdrawalMoneyNote(game, handedInMinor(), player.name)} />
       <div className="flex items-center gap-2.5">
         <Checkbox
           id="player-leaves"

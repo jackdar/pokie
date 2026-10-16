@@ -18,6 +18,7 @@ const baseGame: Game = {
   status: "open",
   seatCount: 8,
   tableColour: "green",
+  joinCode: "K7QM4P",
   players: [],
   buyIns: [],
   withdrawals: [],
@@ -102,7 +103,12 @@ describe("deleteGamesUpdatedBefore", () => {
     const db = openDatabase(":memory:");
     insertGame(db, { ...baseGame, id: "old" }, "hash", "2026-09-01T00:00:00.000Z");
     insertPlayer(db, "old", { id: "ann", name: "Ann", seat: 0 });
-    insertGame(db, { ...baseGame, id: "recent" }, "hash", "2026-10-15T00:00:00.000Z");
+    insertGame(
+      db,
+      { ...baseGame, id: "recent", joinCode: "RECENT" },
+      "hash",
+      "2026-10-15T00:00:00.000Z",
+    );
 
     expect(deleteGamesUpdatedBefore(db, "2026-10-01T00:00:00.000Z")).toBe(1);
     expect(findGame(db, "old")).toBeUndefined();

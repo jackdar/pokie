@@ -5,7 +5,8 @@ import { assertEditable, changeStatus, type Game } from "../../src/core/game.ts"
 import { assertConsistentGame, settle } from "../../src/core/settlement.ts";
 import { createToken, hashToken } from "../auth.ts";
 import { inTransaction, type Database } from "../db/database.ts";
-import { insertGame, updateGameSettings } from "../db/gameRepo.ts";
+import { findGameIdByJoinCode, insertGame, updateGameSettings } from "../db/gameRepo.ts";
+import { createUniqueJoinCode } from "../joinCode.ts";
 import { loadGame, nowIso, parseJsonBody, requireHost } from "../http.ts";
 import { createGameSchema, updateGameSchema } from "./schemas.ts";
 
@@ -38,6 +39,7 @@ export function gameRoutes(db: Database): Hono {
       status: "open",
       seatCount: body.seatCount,
       tableColour: body.tableColour,
+      joinCode: createUniqueJoinCode((code) => findGameIdByJoinCode(db, code) !== undefined),
       ...(body.minBuyInMinor === undefined ? {} : { minBuyInMinor: body.minBuyInMinor }),
       ...(body.maxBuyInMinor === undefined ? {} : { maxBuyInMinor: body.maxBuyInMinor }),
       players: [],

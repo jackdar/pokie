@@ -16,6 +16,7 @@ const baseGame: Game = {
   status: "open",
   seatCount: 8,
   tableColour: "green",
+  joinCode: "K7QM4P",
   minBuyInMinor: 2000,
   maxBuyInMinor: 5000,
   players: [],

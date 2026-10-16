@@ -1,13 +1,18 @@
-import { assertValidRate, chipValueOfCount, minorUnitsToChipUnits } from "./chips.ts";
+import {
+  approximateMinorUnits,
+  assertValidRate,
+  chipValueOfCount,
+  minorUnitsToChipUnits,
+} from "./chips.ts";
 import { GameRuleError } from "./errors.ts";
-import type { EscrowHolder, FinalCount, Game, SettlementMode } from "./game.ts";
+import type { MoneyHolder, FinalCount, Game, SettlementMode } from "./game.ts";
 import { assertPositiveMinorUnits, type MinorUnits } from "./money.ts";
 import { assertValidBuyInLimits } from "./buyInLimits.ts";
 import { assertValidChipCase } from "./chipCase.ts";
 import { assertValidTable, hasLeftTable } from "./table.ts";
 
-/** The party id of an escrow holder who is not a player. */
-export const EXTERNAL_ESCROW_ID = "escrow";
+/** The party id of a money holder who is not a player. */
+export const EXTERNAL_HOLDER_ID = "holder";
 
 export type Reconciliation = {
   issuedChipUnits: number;
@@ -38,6 +43,16 @@ export type EscrowSummary = {
   payOut: Transfer[];
 };
 
+export type CashBoxSummary = {
+  holderId: string;
+  /** Every buy-in, paid to the holder when it happened. */
+  collectedMinor: MinorUnits;
+  /** Withdrawals that the holder paid out during the game. */
+  paidDuringGameMinor: MinorUnits;
+  /** What the holder pays each player at the end. */
+  payOut: Transfer[];
+};
+
 export type SettlementResult =
   | { ok: false; reconciliation: Reconciliation }
   | {
@@ -47,6 +62,7 @@ export type SettlementResult =
       results: PlayerResult[];
       transfers: Transfer[];
       escrow?: EscrowSummary;
+      cashBox?: CashBoxSummary;
     };
 
 function assertKnownPlayer(game: Game, playerId: string, source: string): void {
@@ -158,8 +174,8 @@ export function assertConsistentGame(game: Game): void {
   assertValidBuyInLimits(game);
 
   const { settlement } = game;
-  if (settlement.mode === "escrow" && settlement.holder.kind === "player") {
-    assertKnownPlayer(game, settlement.holder.playerId, "The escrow holder");
+  if (settlement.mode !== "direct" && settlement.holder.kind === "player") {
+    assertKnownPlayer(game, settlement.holder.playerId, "The money holder");
   }
 
   reconcile(game);
@@ -248,13 +264,25 @@ export function minimalTransfers(results: PlayerResult[]): Transfer[] {
   return transfers;
 }
 
-export function escrowHolderId(holder: EscrowHolder): string {
-  return holder.kind === "player" ? holder.playerId : EXTERNAL_ESCROW_ID;
+/**
+ * A host who sets up a game names the money holder before anyone sits down, so the holder is
+ * often entered as a name and then also joins as a player. When exactly one player has that name,
+ * the holder is that player. Otherwise the holder would pay their own winnings to themselves.
+ */
+export function resolveMoneyHolder(game: Game, holder: MoneyHolder): MoneyHolder {
+  if (holder.kind === "player") return holder;
+  const sameName = (name: string) => name.trim().toLowerCase() === holder.name.trim().toLowerCase();
+  const matches = game.players.filter((player) => sameName(player.name));
+  return matches.length === 1 ? { kind: "player", playerId: matches[0]!.id } : holder;
+}
+
+export function moneyHolderId(holder: MoneyHolder): string {
+  return holder.kind === "player" ? holder.playerId : EXTERNAL_HOLDER_ID;
 }
 
 /** A holder who also plays keeps their own result, so they never pay themselves. */
-export function escrowTransfers(results: PlayerResult[], holder: EscrowHolder): Transfer[] {
-  const holderId = escrowHolderId(holder);
+export function escrowTransfers(results: PlayerResult[], holder: MoneyHolder): Transfer[] {
+  const holderId = moneyHolderId(holder);
   if (holder.kind === "player" && !results.some((result) => result.playerId === holderId)) {
     throw new GameRuleError(`Escrow holder "${holderId}" is not a player in this game.`);
   }
@@ -271,6 +299,34 @@ export function escrowTransfers(results: PlayerResult[], holder: EscrowHolder): 
   return transfers;
 }
 
+/** In cash box mode the holder pays a withdrawal in cash when it happens. */
+export function withdrawalPayoutMinor(game: Game, chipUnits: number): MinorUnits {
+  return approximateMinorUnits(chipUnits, game.rate);
+}
+
+/**
+ * The holder already has every buy-in, so at the end they pay each player for the chips in front of them.
+ * Withdrawals were paid during the game, so they are not paid again.
+ * A holder who also plays keeps their own chips, so they never pay themselves.
+ */
+export function cashBoxPayouts(
+  game: Game,
+  results: PlayerResult[],
+  holder: MoneyHolder,
+): Transfer[] {
+  const holderId = moneyHolderId(holder);
+  const transfers: Transfer[] = [];
+  for (const result of results) {
+    if (result.playerId === holderId) continue;
+    const paidDuringGame = game.withdrawals
+      .filter((withdrawal) => withdrawal.playerId === result.playerId)
+      .reduce((sum, withdrawal) => sum + withdrawalPayoutMinor(game, withdrawal.chipUnits), 0);
+    const amountMinor = result.cashOutMinor - paidDuringGame;
+    if (amountMinor > 0) transfers.push({ from: holderId, to: result.playerId, amountMinor });
+  }
+  return transfers;
+}
+
 export function settle(game: Game): SettlementResult {
   const reconciliation = reconcile(game);
   if (!reconciliation.isBalanced) {
@@ -283,8 +339,29 @@ export function settle(game: Game): SettlementResult {
     return { ok: true, reconciliation, mode, results, transfers: minimalTransfers(results) };
   }
 
-  const holderId = escrowHolderId(mode.holder);
-  const transfers = escrowTransfers(results, mode.holder);
+  const holder = resolveMoneyHolder(game, mode.holder);
+  const holderId = moneyHolderId(holder);
+  if (mode.mode === "cashBox") {
+    const payOut = cashBoxPayouts(game, results, holder);
+    return {
+      ok: true,
+      reconciliation,
+      mode,
+      results,
+      transfers: payOut,
+      cashBox: {
+        holderId,
+        collectedMinor: game.buyIns.reduce((sum, buyIn) => sum + buyIn.amountMinor, 0),
+        paidDuringGameMinor: game.withdrawals.reduce(
+          (sum, withdrawal) => sum + withdrawalPayoutMinor(game, withdrawal.chipUnits),
+          0,
+        ),
+        payOut,
+      },
+    };
+  }
+
+  const transfers = escrowTransfers(results, holder);
   return {
     ok: true,
     reconciliation,

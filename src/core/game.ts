@@ -37,11 +37,19 @@ export type FinalCount = {
   submittedBy: "host" | "player";
 };
 
-export type EscrowHolder =
-  | { kind: "player"; playerId: string }
-  | { kind: "external"; name: string };
+export type MoneyHolder = { kind: "player"; playerId: string } | { kind: "external"; name: string };
 
-export type SettlementMode = { mode: "direct" } | { mode: "escrow"; holder: EscrowHolder };
+/**
+ * How players settle up at the end.
+ * direct: losers pay winners.
+ * escrow: losers pay the holder, and the holder pays winners.
+ * cashBox: every buy-in is paid to the holder in cash when it happens. The holder pays withdrawals
+ * straight away, and at the end pays each player the value of their counted chips.
+ */
+export type SettlementMode =
+  | { mode: "direct" }
+  | { mode: "escrow"; holder: MoneyHolder }
+  | { mode: "cashBox"; holder: MoneyHolder };
 
 export const TABLE_COLOURS = ["green", "blue", "red", "purple"] as const;
 
@@ -58,6 +66,8 @@ export type Game = {
   status: GameStatus;
   seatCount: number;
   tableColour: TableColour;
+  /** A short code that people type on the home page to find the game. */
+  joinCode: string;
   /** The smallest stack a player may hold after a buy-in. */
   minBuyInMinor?: MinorUnits;
   /** The largest stack a player may hold after a buy-in. */

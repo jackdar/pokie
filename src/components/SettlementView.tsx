@@ -10,7 +10,7 @@ import type { Game } from "@/core/game.ts";
 import { formatMoney } from "@/core/money.ts";
 import type { SettlementResult, Transfer } from "@/core/settlement.ts";
 import { cn } from "@/lib/utils";
-import { escrowHolderName, partyName } from "@/ui/parties.ts";
+import { moneyHolderName, partyName } from "@/ui/parties.ts";
 
 type SettledResult = Extract<SettlementResult, { ok: true }>;
 
@@ -51,7 +51,7 @@ export function SettlementView({ game, settlement }: SettlementViewProps) {
   const playersWithResults = settlement.results.filter(
     (result) => result.paidInMinor > 0 || result.cashOutMinor > 0,
   );
-  const holderName = escrowHolderName(game);
+  const holderName = moneyHolderName(game);
 
   return (
     <div className="grid gap-6">
@@ -86,11 +86,30 @@ export function SettlementView({ game, settlement }: SettlementViewProps) {
         </TableBody>
       </Table>
 
-      {settlement.transfers.length === 0 && (
+      {settlement.cashBox && (
+        <section className="grid gap-2" aria-labelledby="cash-box-title">
+          <h3 id="cash-box-title" className="text-lg font-semibold">
+            {holderName} pays out
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {holderName} took {formatMoney(settlement.cashBox.collectedMinor)} in buy-ins
+            {settlement.cashBox.paidDuringGameMinor > 0 &&
+              ` and paid ${formatMoney(settlement.cashBox.paidDuringGameMinor)} for withdrawals during the game`}
+            .
+          </p>
+          {settlement.cashBox.payOut.length > 0 ? (
+            <PaymentList game={game} transfers={settlement.cashBox.payOut} />
+          ) : (
+            <p className="text-muted-foreground">No player has chips left to cash in.</p>
+          )}
+        </section>
+      )}
+
+      {!settlement.cashBox && settlement.transfers.length === 0 && (
         <p className="text-muted-foreground">Everyone broke even. Nobody needs to pay.</p>
       )}
 
-      {settlement.transfers.length > 0 && !settlement.escrow && (
+      {settlement.transfers.length > 0 && !settlement.escrow && !settlement.cashBox && (
         <section className="grid gap-2" aria-labelledby="payments-title">
           <h3 id="payments-title" className="text-lg font-semibold">
             Payments

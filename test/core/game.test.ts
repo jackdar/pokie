@@ -9,6 +9,7 @@ const baseGame: Game = {
   status: "open",
   seatCount: 8,
   tableColour: "green",
+  joinCode: "K7QM4P",
   players: [],
   buyIns: [],
   withdrawals: [],

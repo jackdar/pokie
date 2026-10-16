@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { api, type NewGame } from "@/api/client.ts";
@@ -9,6 +9,7 @@ import { ChipStackList } from "@/components/ChipStackList.tsx";
 import { ChipSwatch } from "@/components/ChipSwatch.tsx";
 import { FormError } from "@/components/FormError.tsx";
 import { HostedGames } from "@/components/HostedGames.tsx";
+import { JoinByCode } from "@/components/JoinByCode.tsx";
 import { MoneyInput } from "@/components/MoneyInput.tsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,7 @@ import { formatMoney, parseMoneyInput } from "@/core/money.ts";
 import { DEFAULT_SEATS, MAX_SEATS, MIN_SEATS } from "@/core/table.ts";
 import { unusedChipColours } from "@/ui/chipColours.ts";
 import { parseQuantity } from "@/ui/chipQuantities.ts";
+import { holderLabel, settleModeOptions, type SettleModeId } from "@/ui/settleModes.ts";
 
 /** One chip in the form. "quantity" is how many the host has in the chip case. */
 type ChipRow = { key: number; colour: string; value: string; quantity: string };
@@ -61,7 +63,7 @@ export function HomeScreen() {
   const [seatCount, setSeatCount] = useState(DEFAULT_SEATS);
   const [minBuyIn, setMinBuyIn] = useState("");
   const [maxBuyIn, setMaxBuyIn] = useState("");
-  const [settleMode, setSettleMode] = useState<"direct" | "escrow">("direct");
+  const [settleMode, setSettleMode] = useState<SettleModeId>("direct");
   const [holderName, setHolderName] = useState("");
   const [formError, setFormError] = useState<string>();
 
@@ -97,8 +99,8 @@ export function HomeScreen() {
       return "The table minimum cannot be more than the table maximum.";
     }
 
-    if (settleMode === "escrow" && !holderName.trim()) {
-      return "Enter the name of the person who collects and pays out.";
+    if (settleMode !== "direct" && !holderName.trim()) {
+      return "Enter the name of the person who holds the money.";
     }
 
     return {
@@ -110,7 +112,7 @@ export function HomeScreen() {
       settlement:
         settleMode === "direct"
           ? { mode: "direct" }
-          : { mode: "escrow", holder: { kind: "external", name: holderName.trim() } },
+          : { mode: settleMode, holder: { kind: "external", name: holderName.trim() } },
     };
   }
 
@@ -137,16 +139,15 @@ export function HomeScreen() {
   return (
     <>
       <header className="mb-8 grid gap-1">
-        <div className="flex items-baseline justify-between gap-4">
-          <h1 className="text-4xl font-bold">Pokie</h1>
-          <Link to="/games" className="text-primary underline-offset-4 hover:underline">
-            Your games
-          </Link>
-        </div>
+        <h1 className="text-4xl font-bold">Pokie</h1>
         <p className="text-muted-foreground">
           Track buy-ins at the table, then settle up at the end of the night.
         </p>
       </header>
+
+      <div className="mb-10">
+        <JoinByCode />
+      </div>
 
       <form className="grid gap-6" onSubmit={submit} noValidate>
         <h2 className="text-xl font-semibold">New game</h2>
@@ -325,34 +326,31 @@ export function HomeScreen() {
           <legend className="mb-1.5 text-sm font-medium">Settle up</legend>
           <RadioGroup
             value={settleMode}
-            onValueChange={(value) => setSettleMode(value === "escrow" ? "escrow" : "direct")}
+            onValueChange={(value) =>
+              setSettleMode(settleModeOptions.find((o) => o.id === value)?.id ?? "direct")
+            }
           >
-            <Label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 font-normal has-data-[state=checked]:border-primary">
-              <RadioGroupItem value="direct" className="mt-0.5" />
-              <span className="grid gap-0.5">
-                <span className="font-medium">Players pay each other</span>
-                <span className="text-muted-foreground">
-                  The app lists the fewest payments that settle everyone.
+            {settleModeOptions.map((option) => (
+              <Label
+                key={option.id}
+                className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 font-normal has-data-[state=checked]:border-primary"
+              >
+                <RadioGroupItem value={option.id} className="mt-0.5" />
+                <span className="grid gap-0.5">
+                  <span className="font-medium">{option.title}</span>
+                  <span className="text-muted-foreground">{option.description}</span>
                 </span>
-              </span>
-            </Label>
-            <Label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 font-normal has-data-[state=checked]:border-primary">
-              <RadioGroupItem value="escrow" className="mt-0.5" />
-              <span className="grid gap-0.5">
-                <span className="font-medium">One person collects and pays out</span>
-                <span className="text-muted-foreground">
-                  Losers pay this person. This person pays the winners.
-                </span>
-              </span>
-            </Label>
+              </Label>
+            ))}
           </RadioGroup>
-          {settleMode === "escrow" && (
+          {settleMode !== "direct" && (
             <div className="grid gap-1.5">
-              <Label htmlFor="holder-name">Who collects</Label>
+              <Label htmlFor="holder-name">{holderLabel(settleMode)}</Label>
               <Input
                 id="holder-name"
                 value={holderName}
                 maxLength={80}
+                placeholder="Host"
                 onChange={(event) => setHolderName(event.target.value)}
               />
             </div>

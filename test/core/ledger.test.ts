@@ -16,6 +16,7 @@ const baseGame: Game = {
   status: "open",
   seatCount: 8,
   tableColour: "green",
+  joinCode: "K7QM4P",
   players: [
     { id: "ann", name: "Ann", seat: 0 },
     { id: "bob", name: "Bob", seat: 1 },

@@ -102,6 +102,7 @@ describe("runMigrations", () => {
       name: "Old game",
       seatCount: 8,
       tableColour: "green",
+      joinCode: expect.stringMatching(/^[23456789ABCDEFGHJKMNPQRSTWXYZ]{6}$/),
       players: [{ id: "ann", name: "Ann", seat: 0 }],
       buyIns: [{ id: "b1", amountMinor: 1000 }],
       withdrawals: [],
@@ -137,6 +138,22 @@ describe("runMigrations", () => {
     });
   });
 
+  it("gives every existing game its own join code", () => {
+    const path = join(folder, "pokie.db");
+    const legacy = new DatabaseSync(path);
+    legacy.exec(beforeChipCaseSchema);
+    legacy.exec(`INSERT INTO games VALUES ('g2', 'Another game', 1, 1, '[]', '{"mode":"direct"}',
+      'open', 8, 'green', 'hash', '2026-10-17T19:00:00.000Z')`);
+    legacy.close();
+
+    const db = openDatabase(path);
+    const codes = ["g1", "g2"].map((id) => findGame(db, id)?.game.joinCode);
+
+    expect(codes[0]).toMatch(/^[23456789ABCDEFGHJKMNPQRSTWXYZ]{6}$/);
+    expect(codes[1]).toMatch(/^[23456789ABCDEFGHJKMNPQRSTWXYZ]{6}$/);
+    expect(codes[0]).not.toBe(codes[1]);
+  });
+
   it("does nothing when the database is already up to date", () => {
     const path = join(folder, "pokie.db");
     openDatabase(path).close();
@@ -151,7 +168,7 @@ describe("runMigrations", () => {
     db.exec("PRAGMA user_version = 99");
 
     expect(() => runMigrations(db, migrations)).toThrow(
-      "The database is at schema version 99, but this version of Pokie knows only up to 1.",
+      `The database is at schema version 99, but this version of Pokie knows only up to ${migrations.at(-1)!.version}.`,
     );
   });
 

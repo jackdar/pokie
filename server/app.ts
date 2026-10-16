@@ -9,6 +9,7 @@ import { buyInRoutes } from "./routes/buyIns.ts";
 import { eventRoutes } from "./routes/events.ts";
 import { finalCountRoutes } from "./routes/finalCounts.ts";
 import { gameRoutes } from "./routes/games.ts";
+import { joinRoutes } from "./routes/join.ts";
 import { playerRoutes } from "./routes/players.ts";
 import { withdrawalRoutes } from "./routes/withdrawals.ts";
 
@@ -51,6 +52,7 @@ export function createApp({ db, events = new GameEvents(), staticRoot }: AppOpti
   app.route("/api/games", withdrawalRoutes(db));
   app.route("/api/games", finalCountRoutes(db));
   app.route("/api/games", eventRoutes(db, events));
+  app.route("/api/join", joinRoutes(db));
   app.all("/api/*", (c) => c.json({ error: "This API route does not exist." }, 404));
 
   if (staticRoot) {

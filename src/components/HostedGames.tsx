@@ -6,7 +6,10 @@ import { hostedGames, type HostedGame } from "@/api/deviceGames.ts";
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short" });
 
-function GameList({ title, games }: { title: string; games: HostedGame[] }) {
+/** A hosted game, with its join code once the game has loaded from the server. */
+type ListedGame = HostedGame & { joinCode: string | undefined };
+
+function GameList({ title, games }: { title: string; games: ListedGame[] }) {
   if (games.length === 0) return null;
   const headingId = `games-${title.toLowerCase().replaceAll(" ", "-")}`;
   return (
@@ -20,10 +23,16 @@ function GameList({ title, games }: { title: string; games: HostedGame[] }) {
             <Link
               to="/games/$gameId"
               params={{ gameId: game.gameId }}
-              className="flex justify-between gap-4 py-3 hover:text-primary"
+              className="flex items-baseline gap-4 py-3 hover:text-primary"
             >
-              <span>{game.name}</span>
-              <span className="text-muted-foreground">
+              <span className="flex-1 truncate">{game.name}</span>
+              {game.joinCode && (
+                <span className="font-semibold tracking-[0.2em]">
+                  <span className="sr-only">Game code </span>
+                  {game.joinCode}
+                </span>
+              )}
+              <span className="w-[6ch] text-right text-muted-foreground">
                 {dateFormat.format(new Date(game.createdAt))}
               </span>
             </Link>
@@ -35,9 +44,9 @@ function GameList({ title, games }: { title: string; games: HostedGame[] }) {
 }
 
 /** The games this device hosts, split into games still running and closed games. */
-export function HostedGames({ showEmptyMessage = false }: { showEmptyMessage?: boolean }) {
+export function HostedGames() {
   const games = hostedGames();
-  const statuses = useQueries({
+  const loaded = useQueries({
     queries: games.map((game) => ({
       queryKey: gameQueryKey(game.gameId),
       queryFn: async () => (await api.getGame(game.gameId)).game,
@@ -46,26 +55,17 @@ export function HostedGames({ showEmptyMessage = false }: { showEmptyMessage?: b
   });
 
   // A game that failed to load has expired from the server. It is left out.
-  const current: HostedGame[] = [];
-  const past: HostedGame[] = [];
+  const current: ListedGame[] = [];
+  const past: ListedGame[] = [];
   games.forEach((game, index) => {
-    const status = statuses[index];
-    if (status?.isError) return;
-    if (status?.data?.status === "closed") past.push(game);
-    else current.push(game);
+    const result = loaded[index];
+    if (result?.isError) return;
+    const listed = { ...game, joinCode: result?.data?.joinCode };
+    if (result?.data?.status === "closed") past.push(listed);
+    else current.push(listed);
   });
 
-  if (games.length === 0) {
-    if (!showEmptyMessage) return null;
-    return (
-      <p className="text-muted-foreground">
-        You do not host any games on this device yet.{" "}
-        <Link to="/" className="text-primary underline-offset-4 hover:underline">
-          Start a game
-        </Link>
-      </p>
-    );
-  }
+  if (games.length === 0) return null;
 
   return (
     <div className="grid gap-10">

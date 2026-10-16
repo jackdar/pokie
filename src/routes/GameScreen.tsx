@@ -124,6 +124,12 @@ export function GameScreen() {
           )}
         </div>
         <p className="text-muted-foreground">
+          Game code{" "}
+          <span className="text-lg font-semibold tracking-[0.2em] text-foreground">
+            {game.joinCode}
+          </span>
+        </p>
+        <p className="text-muted-foreground">
           {statusLabels[game.status]}
           {limits && `. ${limits}.`}
         </p>

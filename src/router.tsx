@@ -1,6 +1,5 @@
 import { Outlet, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
 import { GameScreen } from "@/routes/GameScreen.tsx";
-import { GamesScreen } from "@/routes/GamesScreen.tsx";
 import { HomeScreen } from "@/routes/HomeScreen.tsx";
 
 const rootRoute = createRootRoute({
@@ -17,12 +16,6 @@ const homeRoute = createRoute({
   component: HomeScreen,
 });
 
-const gamesRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/games",
-  component: GamesScreen,
-});
-
 export const gameRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/games/$gameId",
@@ -32,7 +25,7 @@ export const gameRoute = createRoute({
   component: GameScreen,
 });
 
-const routeTree = rootRoute.addChildren([homeRoute, gamesRoute, gameRoute]);
+const routeTree = rootRoute.addChildren([homeRoute, gameRoute]);
 
 export const router = createRouter({ routeTree });
 

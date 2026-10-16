@@ -28,6 +28,7 @@ type GameRow = {
   status: GameStatus;
   seat_count: number;
   table_colour: TableColour;
+  join_code: string;
   min_buy_in_minor: number | null;
   max_buy_in_minor: number | null;
   host_token_hash: string;
@@ -123,6 +124,7 @@ export function findGame(db: Database, gameId: string): StoredGame | undefined {
       status: gameRow.status,
       seatCount: gameRow.seat_count,
       tableColour: gameRow.table_colour,
+      joinCode: gameRow.join_code,
       ...(gameRow.min_buy_in_minor === null ? {} : { minBuyInMinor: gameRow.min_buy_in_minor }),
       ...(gameRow.max_buy_in_minor === null ? {} : { maxBuyInMinor: gameRow.max_buy_in_minor }),
       players,
@@ -135,8 +137,8 @@ export function findGame(db: Database, gameId: string): StoredGame | undefined {
 
 export function insertGame(db: Database, game: Game, hostTokenHash: string, now: string): void {
   db.prepare(
-    `INSERT INTO games (id, name, rate_minor, rate_chips, denominations_json, settlement_json, status, seat_count, table_colour, min_buy_in_minor, max_buy_in_minor, host_token_hash, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO games (id, name, rate_minor, rate_chips, denominations_json, settlement_json, status, seat_count, table_colour, join_code, min_buy_in_minor, max_buy_in_minor, host_token_hash, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     game.id,
     game.name,
@@ -147,11 +149,19 @@ export function insertGame(db: Database, game: Game, hostTokenHash: string, now:
     game.status,
     game.seatCount,
     game.tableColour,
+    game.joinCode,
     game.minBuyInMinor ?? null,
     game.maxBuyInMinor ?? null,
     hostTokenHash,
     now,
   );
+}
+
+export function findGameIdByJoinCode(db: Database, joinCode: string): string | undefined {
+  const row = db.prepare("SELECT id FROM games WHERE join_code = ?").get(joinCode) as
+    | { id: string }
+    | undefined;
+  return row?.id;
 }
 
 export function updateGameSettings(db: Database, game: Game, now: string): void {

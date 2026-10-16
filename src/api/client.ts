@@ -82,6 +82,9 @@ export const api = {
 
   getGame: (gameId: string) => request<{ game: Game }>(`/games/${gameId}`),
 
+  findGameByCode: (joinCode: string) =>
+    request<{ gameId: string }>(`/join/${encodeURIComponent(joinCode)}`),
+
   updateGame: (gameId: string, hostToken: string, update: GameUpdate) =>
     request<{ game: Game }>(`/games/${gameId}`, {
       method: "PATCH",

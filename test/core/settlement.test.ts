@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Game } from "../../src/core/game.ts";
 import {
-  EXTERNAL_ESCROW_ID,
+  EXTERNAL_HOLDER_ID,
   assertConsistentGame,
   escrowTransfers,
   minimalTransfers,
   netResults,
+  resolveMoneyHolder,
   reconcile,
   settle,
   type PlayerResult,
@@ -24,6 +25,7 @@ const baseGame: Game = {
   status: "counting",
   seatCount: 8,
   tableColour: "green",
+  joinCode: "K7QM4P",
   players: [
     { id: "ann", name: "Ann", seat: 0 },
     { id: "bob", name: "Bob", seat: 1 },
@@ -339,9 +341,9 @@ describe("escrowTransfers", () => {
 
   it("routes every payment through an external holder", () => {
     expect(escrowTransfers(results, { kind: "external", name: "Dealer" })).toEqual([
-      { from: EXTERNAL_ESCROW_ID, to: "ann", amountMinor: 700 },
-      { from: "bob", to: EXTERNAL_ESCROW_ID, amountMinor: 200 },
-      { from: "cat", to: EXTERNAL_ESCROW_ID, amountMinor: 500 },
+      { from: EXTERNAL_HOLDER_ID, to: "ann", amountMinor: 700 },
+      { from: "bob", to: EXTERNAL_HOLDER_ID, amountMinor: 200 },
+      { from: "cat", to: EXTERNAL_HOLDER_ID, amountMinor: 500 },
     ]);
   });
 
@@ -394,12 +396,12 @@ describe("settle", () => {
     expect(settle(game)).toMatchObject({
       ok: true,
       escrow: {
-        holderId: EXTERNAL_ESCROW_ID,
+        holderId: EXTERNAL_HOLDER_ID,
         collect: [
-          { from: "bob", to: EXTERNAL_ESCROW_ID, amountMinor: 200 },
-          { from: "cat", to: EXTERNAL_ESCROW_ID, amountMinor: 500 },
+          { from: "bob", to: EXTERNAL_HOLDER_ID, amountMinor: 200 },
+          { from: "cat", to: EXTERNAL_HOLDER_ID, amountMinor: 500 },
         ],
-        payOut: [{ from: EXTERNAL_ESCROW_ID, to: "ann", amountMinor: 700 }],
+        payOut: [{ from: EXTERNAL_HOLDER_ID, to: "ann", amountMinor: 700 }],
       },
     });
   });
@@ -424,7 +426,7 @@ describe("assertConsistentGame", () => {
       settlement: { mode: "escrow", holder: { kind: "player", playerId: "zed" } },
     };
     expect(() => assertConsistentGame(game)).toThrow(
-      'The escrow holder refers to unknown player "zed"',
+      'The money holder refers to unknown player "zed"',
     );
   });
 
@@ -436,5 +438,154 @@ describe("assertConsistentGame", () => {
   it("accepts a game whose chips do not balance yet", () => {
     const game: Game = { ...baseGame, finalCounts: [] };
     expect(() => assertConsistentGame(game)).not.toThrow();
+  });
+});
+
+describe("cash box", () => {
+  it("has the holder pay every player their counted chips, and collects nothing at the end", () => {
+    const game: Game = {
+      ...baseGame,
+      settlement: { mode: "cashBox", holder: { kind: "external", name: "Host" } },
+    };
+
+    expect(settle(game)).toMatchObject({
+      ok: true,
+      transfers: [
+        { from: EXTERNAL_HOLDER_ID, to: "ann", amountMinor: 1700 },
+        { from: EXTERNAL_HOLDER_ID, to: "bob", amountMinor: 800 },
+        { from: EXTERNAL_HOLDER_ID, to: "cat", amountMinor: 500 },
+      ],
+      cashBox: { collectedMinor: 3000, paidDuringGameMinor: 0 },
+    });
+  });
+
+  it("pays out exactly what the holder collected", () => {
+    const game: Game = {
+      ...baseGame,
+      settlement: { mode: "cashBox", holder: { kind: "external", name: "Host" } },
+    };
+    const settlement = settle(game);
+
+    expect(settlement.ok && settlement.transfers.reduce((sum, t) => sum + t.amountMinor, 0)).toBe(
+      3000,
+    );
+  });
+
+  it("does not pay a withdrawal twice", () => {
+    // Cat hands in $3 of chips mid-game and is paid then. $2 of chips stay in front of Cat.
+    const game: Game = {
+      ...baseGame,
+      settlement: { mode: "cashBox", holder: { kind: "external", name: "Host" } },
+      withdrawals: [
+        {
+          id: "w1",
+          playerId: "cat",
+          chipUnits: 300,
+          leavesTable: false,
+          createdAt: "2026-10-16T21:00:00Z",
+        },
+      ],
+      finalCounts: [
+        ...baseGame.finalCounts.filter((c) => c.playerId !== "cat"),
+        { playerId: "cat", count: { kind: "total", chipUnits: 200 }, submittedBy: "host" },
+      ],
+    };
+
+    expect(settle(game)).toMatchObject({
+      transfers: expect.arrayContaining([
+        { from: EXTERNAL_HOLDER_ID, to: "cat", amountMinor: 200 },
+      ]),
+      cashBox: { collectedMinor: 3000, paidDuringGameMinor: 300 },
+    });
+  });
+
+  it("lets a holder who plays keep their own chips", () => {
+    const game: Game = {
+      ...baseGame,
+      settlement: { mode: "cashBox", holder: { kind: "player", playerId: "ann" } },
+    };
+
+    expect(settle(game)).toMatchObject({
+      transfers: [
+        { from: "ann", to: "bob", amountMinor: 800 },
+        { from: "ann", to: "cat", amountMinor: 500 },
+      ],
+    });
+  });
+
+  it("pays nothing to a player who left with all their chips paid out", () => {
+    const game: Game = {
+      ...baseGame,
+      settlement: { mode: "cashBox", holder: { kind: "external", name: "Host" } },
+      withdrawals: [
+        {
+          id: "w1",
+          playerId: "cat",
+          chipUnits: 500,
+          leavesTable: true,
+          createdAt: "2026-10-16T21:00:00Z",
+        },
+      ],
+      finalCounts: baseGame.finalCounts.filter((c) => c.playerId !== "cat"),
+    };
+
+    const settlement = settle(game);
+    expect(settlement.ok && settlement.transfers.map((t) => t.to)).toEqual(["ann", "bob"]);
+  });
+});
+
+describe("a money holder who also plays", () => {
+  it("is the player with the same name", () => {
+    expect(resolveMoneyHolder(baseGame, { kind: "external", name: " ann " })).toEqual({
+      kind: "player",
+      playerId: "ann",
+    });
+  });
+
+  it("stays a separate person when no player has the name", () => {
+    expect(resolveMoneyHolder(baseGame, { kind: "external", name: "Dealer" })).toEqual({
+      kind: "external",
+      name: "Dealer",
+    });
+  });
+
+  it("stays a separate person when two players have the name", () => {
+    const game: Game = {
+      ...baseGame,
+      players: [...baseGame.players, { id: "ann2", name: "Ann", seat: 3 }],
+    };
+    expect(resolveMoneyHolder(game, { kind: "external", name: "Ann" })).toEqual({
+      kind: "external",
+      name: "Ann",
+    });
+  });
+
+  it("does not pay their own chips to themselves in a cash box game", () => {
+    const game: Game = {
+      ...baseGame,
+      settlement: { mode: "cashBox", holder: { kind: "external", name: "Ann" } },
+    };
+
+    expect(settle(game)).toMatchObject({
+      transfers: [
+        { from: "ann", to: "bob", amountMinor: 800 },
+        { from: "ann", to: "cat", amountMinor: 500 },
+      ],
+      cashBox: { holderId: "ann" },
+    });
+  });
+
+  it("does not pay their own winnings to themselves when they collect", () => {
+    const game: Game = {
+      ...baseGame,
+      settlement: { mode: "escrow", holder: { kind: "external", name: "Ann" } },
+    };
+
+    expect(settle(game)).toMatchObject({
+      transfers: [
+        { from: "bob", to: "ann", amountMinor: 200 },
+        { from: "cat", to: "ann", amountMinor: 500 },
+      ],
+    });
   });
 });

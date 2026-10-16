@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Game } from "../../src/core/game.ts";
-import { EXTERNAL_ESCROW_ID } from "../../src/core/settlement.ts";
-import { escrowHolderName, partyName } from "../../src/ui/parties.ts";
+import { EXTERNAL_HOLDER_ID } from "../../src/core/settlement.ts";
+import { moneyHolderName, partyName } from "../../src/ui/parties.ts";
 
 const baseGame: Game = {
   id: "game-1",
@@ -11,6 +11,7 @@ const baseGame: Game = {
   status: "settled",
   seatCount: 8,
   tableColour: "green",
+  joinCode: "K7QM4P",
   players: [{ id: "ann", name: "Ann", seat: 0 }],
   buyIns: [],
   withdrawals: [],
@@ -24,7 +25,7 @@ describe("partyName", () => {
   });
 
   it("names an escrow holder who does not play", () => {
-    expect(partyName(baseGame, EXTERNAL_ESCROW_ID)).toBe("Dealer");
+    expect(partyName(baseGame, EXTERNAL_HOLDER_ID)).toBe("Dealer");
   });
 
   it("says when the player is unknown", () => {
@@ -32,9 +33,18 @@ describe("partyName", () => {
   });
 });
 
-describe("escrowHolderName", () => {
+describe("moneyHolderName", () => {
+  it("names the holder of a cash box", () => {
+    const game: Game = {
+      ...baseGame,
+      settlement: { mode: "cashBox", holder: { kind: "external", name: "Host" } },
+    };
+    expect(moneyHolderName(game)).toBe("Host");
+    expect(partyName(game, EXTERNAL_HOLDER_ID)).toBe("Host");
+  });
+
   it("names an outside holder", () => {
-    expect(escrowHolderName(baseGame)).toBe("Dealer");
+    expect(moneyHolderName(baseGame)).toBe("Dealer");
   });
 
   it("names a player who holds the money", () => {
@@ -42,10 +52,10 @@ describe("escrowHolderName", () => {
       ...baseGame,
       settlement: { mode: "escrow", holder: { kind: "player", playerId: "ann" } },
     };
-    expect(escrowHolderName(game)).toBe("Ann");
+    expect(moneyHolderName(game)).toBe("Ann");
   });
 
   it("is undefined when players pay each other", () => {
-    expect(escrowHolderName({ ...baseGame, settlement: { mode: "direct" } })).toBeUndefined();
+    expect(moneyHolderName({ ...baseGame, settlement: { mode: "direct" } })).toBeUndefined();
   });
 });

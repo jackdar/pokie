@@ -18,15 +18,15 @@ const denominationSchema = z.object({
 
 const chipStackSchema = z.record(z.string(), z.int().nonnegative());
 
+const moneyHolderSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("player"), playerId: z.string().min(1) }),
+  z.object({ kind: z.literal("external"), name: nameSchema }),
+]);
+
 const settlementSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("direct") }),
-  z.object({
-    mode: z.literal("escrow"),
-    holder: z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("player"), playerId: z.string().min(1) }),
-      z.object({ kind: z.literal("external"), name: nameSchema }),
-    ]),
-  }),
+  z.object({ mode: z.literal("escrow"), holder: moneyHolderSchema }),
+  z.object({ mode: z.literal("cashBox"), holder: moneyHolderSchema }),
 ]);
 
 export const createGameSchema = z.object({
