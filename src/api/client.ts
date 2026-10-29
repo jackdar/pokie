@@ -60,6 +60,7 @@ export type NewGame = {
   name: string;
   denominations: Omit<ChipDenomination, "id">[];
   seatCount: number;
+  tableColour: TableColour;
   settlement: SettlementMode;
   minBuyInMinor?: MinorUnits;
   maxBuyInMinor?: MinorUnits;

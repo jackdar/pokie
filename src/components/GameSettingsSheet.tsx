@@ -7,14 +7,13 @@ import { BottomSheet } from "@/components/BottomSheet.tsx";
 import { ChipSwatch } from "@/components/ChipSwatch.tsx";
 import { FormError } from "@/components/FormError.tsx";
 import { MoneyInput } from "@/components/MoneyInput.tsx";
+import { TableColourPicker } from "@/components/TableColourPicker.tsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import type { Game, SettlementMode, TableColour } from "@/core/game.ts";
-import { cn } from "@/lib/utils";
 import { holderLabel, settleModeOptions, type SettleModeId } from "@/ui/settleModes.ts";
-import { tableColourOptions } from "@/ui/tableColours.ts";
 import { approximateMinorUnits } from "@/core/chips.ts";
 import { formatMoney, formatMoneyInput, parseMoneyInput } from "@/core/money.ts";
 import { resolveMoneyHolder } from "@/core/settlement.ts";
@@ -128,25 +127,7 @@ export function GameSettingsSheet({ game, hostToken, onClose }: GameSettingsShee
       <form className="grid gap-5" onSubmit={submit} noValidate>
         <fieldset className="grid gap-2" disabled={!canChangeColour}>
           <legend className="mb-1.5 text-sm font-medium">Table colour</legend>
-          <div role="radiogroup" aria-label="Table colour" className="flex gap-3">
-            {tableColourOptions.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                role="radio"
-                aria-checked={tableColour === option.id}
-                aria-label={option.label}
-                title={option.label}
-                className={cn(
-                  "flex aspect-square size-10 items-center justify-center rounded-full border-2 border-rail-light focus-visible:ring-3 focus-visible:ring-ring/60 focus-visible:outline-none",
-                  tableColour === option.id &&
-                    "ring-2 ring-primary ring-offset-2 ring-offset-popover",
-                )}
-                style={{ backgroundColor: option.felt }}
-                onClick={() => setTableColour(option.id)}
-              />
-            ))}
-          </div>
+          <TableColourPicker value={tableColour} onChange={setTableColour} surface="sheet" />
           <p className="text-sm text-muted-foreground">Everyone in the game sees this colour.</p>
         </fieldset>
 

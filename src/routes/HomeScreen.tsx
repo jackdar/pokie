@@ -1,30 +1,36 @@
 import { useMutation } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { MinusIcon, PlusIcon, XIcon } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { api, type NewGame } from "@/api/client.ts";
 import { rememberHostedGame } from "@/api/deviceGames.ts";
+import { deleteGameTemplate, gameTemplates, saveGameTemplate } from "@/api/deviceTemplates.ts";
 import { ChipColourPicker } from "@/components/ChipColourPicker.tsx";
 import { ChipStackList } from "@/components/ChipStackList.tsx";
 import { ChipSwatch } from "@/components/ChipSwatch.tsx";
 import { FormError } from "@/components/FormError.tsx";
+import { GameTemplateList } from "@/components/GameTemplateList.tsx";
 import { HostedGames } from "@/components/HostedGames.tsx";
 import { JoinByCode } from "@/components/JoinByCode.tsx";
 import { MoneyInput } from "@/components/MoneyInput.tsx";
+import { TableColourPicker } from "@/components/TableColourPicker.tsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { fairShare, ownedChips, stackValue } from "@/core/chipCase.ts";
 import type { ChipDenomination } from "@/core/chips.ts";
+import type { TableColour } from "@/core/game.ts";
 import { formatMoney, parseMoneyInput } from "@/core/money.ts";
 import { DEFAULT_SEATS, MAX_SEATS, MIN_SEATS } from "@/core/table.ts";
 import { unusedChipColours } from "@/ui/chipColours.ts";
 import { parseQuantity } from "@/ui/chipQuantities.ts";
+import type { GameTemplate, TemplateChip } from "@/ui/gameTemplates.ts";
+import { applyTableColour } from "@/ui/tableColours.ts";
 import { holderLabel, settleModeOptions, type SettleModeId } from "@/ui/settleModes.ts";
 
 /** One chip in the form. "quantity" is how many the host has in the chip case. */
-type ChipRow = { key: number; colour: string; value: string; quantity: string };
+type ChipRow = TemplateChip & { key: number };
 
 const defaultChips: ChipRow[] = [
   { key: 1, colour: "White", value: "0.25", quantity: "" },
@@ -61,11 +67,20 @@ export function HomeScreen() {
   const [name, setName] = useState("");
   const [chips, setChips] = useState(defaultChips);
   const [seatCount, setSeatCount] = useState(DEFAULT_SEATS);
+  const [tableColour, setTableColour] = useState<TableColour>("green");
   const [minBuyIn, setMinBuyIn] = useState("");
   const [maxBuyIn, setMaxBuyIn] = useState("");
   const [settleMode, setSettleMode] = useState<SettleModeId>("direct");
   const [holderName, setHolderName] = useState("");
   const [formError, setFormError] = useState<string>();
+  const [templates, setTemplates] = useState(gameTemplates);
+  const [templateName, setTemplateName] = useState<string>();
+  const [templateError, setTemplateError] = useState<string>();
+
+  useEffect(() => {
+    applyTableColour(tableColour);
+    return () => applyTableColour("green");
+  }, [tableColour]);
 
   const createGame = useMutation({
     mutationFn: api.createGame,
@@ -107,6 +122,7 @@ export function HomeScreen() {
       name: trimmedName,
       denominations,
       seatCount,
+      tableColour,
       ...(minBuyInMinor ? { minBuyInMinor } : {}),
       ...(maxBuyInMinor ? { maxBuyInMinor } : {}),
       settlement:
@@ -122,6 +138,60 @@ export function HomeScreen() {
     if (typeof game === "string") return setFormError(game);
     setFormError(undefined);
     createGame.mutate(game);
+  }
+
+  function applyTemplate(template: GameTemplate) {
+    setName(template.gameName);
+    setChips(template.chips.map((chip, index) => ({ ...chip, key: index + 1 })));
+    setSeatCount(template.seatCount);
+    setTableColour(template.tableColour);
+    setMinBuyIn(template.minBuyIn);
+    setMaxBuyIn(template.maxBuyIn);
+    setSettleMode(template.settleMode);
+    setHolderName(template.holderName);
+    setTemplateName(undefined);
+    setTemplateError(undefined);
+  }
+
+  function saveTemplate() {
+    const trimmedName = templateName?.trim();
+    if (!trimmedName) return setTemplateError("Enter a name for the template.");
+    const saved = saveGameTemplate({
+      name: trimmedName,
+      savedAt: new Date().toISOString(),
+      gameName: name,
+      chips: chips.map(({ colour, value, quantity }) => ({ colour, value, quantity })),
+      seatCount,
+      tableColour,
+      minBuyIn,
+      maxBuyIn,
+      settleMode,
+      holderName,
+    });
+    if (!saved) {
+      return setTemplateError(
+        "Cannot save the template. This browser does not let Pokie store data.",
+      );
+    }
+    setTemplates(gameTemplates());
+    setTemplateName(undefined);
+    setTemplateError(undefined);
+  }
+
+  function deleteTemplate(template: GameTemplate) {
+    if (!deleteGameTemplate(template.name)) {
+      return setTemplateError(
+        "Cannot delete the template. This browser does not let Pokie store data.",
+      );
+    }
+    setTemplates(gameTemplates());
+  }
+
+  // Enter in the template name must save the template, not start the game.
+  function saveTemplateOnEnter(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    saveTemplate();
   }
 
   function updateChip(key: number, change: Partial<ChipRow>) {
@@ -151,6 +221,8 @@ export function HomeScreen() {
 
       <form className="grid gap-6" onSubmit={submit} noValidate>
         <h2 className="text-xl font-semibold">New game</h2>
+
+        <GameTemplateList templates={templates} onUse={applyTemplate} onDelete={deleteTemplate} />
 
         <div className="grid gap-1.5">
           <Label htmlFor="game-name">Game name</Label>
@@ -295,6 +367,12 @@ export function HomeScreen() {
         </fieldset>
 
         <fieldset className="grid gap-2">
+          <legend className="mb-1.5 text-sm font-medium">Table colour</legend>
+          <TableColourPicker value={tableColour} onChange={setTableColour} surface="page" />
+          <p className="text-sm text-muted-foreground">Everyone in the game sees this colour.</p>
+        </fieldset>
+
+        <fieldset className="grid gap-2">
           <legend className="mb-1.5 text-sm font-medium">Table limits</legend>
           <p className="text-sm text-muted-foreground">
             After any buy-in, a player's stack must be between these amounts. Leave them empty for
@@ -358,11 +436,50 @@ export function HomeScreen() {
         </fieldset>
 
         <FormError message={formError ?? createGame.error?.message} />
-        <div>
+        <div className="flex flex-wrap gap-3">
           <Button type="submit" size="lg" disabled={createGame.isPending}>
             Start game
           </Button>
+          {templateName === undefined && (
+            <Button type="button" size="lg" variant="outline" onClick={() => setTemplateName("")}>
+              Save as template
+            </Button>
+          )}
         </div>
+        {templateName !== undefined && (
+          <div className="grid gap-1.5">
+            <Label htmlFor="template-name">Template name</Label>
+            <p className="text-sm text-muted-foreground">
+              Saves the game name, chips, and table settings on this device. A template with the
+              same name is replaced.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                id="template-name"
+                value={templateName}
+                maxLength={80}
+                placeholder="Friday cash game"
+                autoFocus
+                onChange={(event) => setTemplateName(event.target.value)}
+                onKeyDown={saveTemplateOnEnter}
+              />
+              <Button type="button" onClick={saveTemplate}>
+                Save
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setTemplateName(undefined);
+                  setTemplateError(undefined);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+        <FormError message={templateError} />
       </form>
 
       <div className="mt-12">

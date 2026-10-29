@@ -9,7 +9,7 @@ export const tableColourOptions: { id: TableColour; label: string; felt: string;
     { id: "purple", label: "Purple", felt: "#4f2b75", room: "#1d1726" },
   ];
 
-/** Colours the whole page for one game. Pages outside a game use green. */
+/** Colours the whole page. The home page shows the colour picked for the new game. */
 export function applyTableColour(colour: TableColour): void {
   document.documentElement.dataset.theme = colour;
   const room = tableColourOptions.find((option) => option.id === colour)?.room;
